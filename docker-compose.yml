@@ -1,4 +1,6 @@
 # docker-compose.yml
+version: '3'
+
 services:
   db:
     image: postgres:16-alpine
@@ -19,13 +21,12 @@ services:
       - "8000:8000"
     volumes:
       - ./backend:/app
-      # Use a bind mount to map the host directory directly to the container
-      - ./backend/media:/app/media 
-    # A porta 8000 não precisa mais ser exposta para o host,
-    # apenas para a rede interna do Docker, o que é o padrão.
+      - ./backend/media:/app/media
     environment:
       - DEBUG=1
-      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
+      - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend,0.0.0.0,*
+      # Usaremos uma configuração dinâmica para o IP do front-end
+      - FRONTEND_URL=http://${HOST_IP:-localhost}:5173
       - DB_NAME=relatorio_expresso_db
       - DB_USER=user
       - DB_PASS=password
@@ -38,14 +39,18 @@ services:
       - app-network
 
   frontend:
-    build: 
+    build:
       context: ./frontend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.dev
     volumes:
-      # Map the same host directory to the Nginx container
-      - ./backend/media:/app/media 
+      - ./frontend:/app
+      - /app/node_modules
+      - ./backend/media:/app/media
     ports:
-      - "80:80"
+      - "5173:5173"
+    environment:
+      - VITE_API_URL=http://${HOST_IP:-localhost}:8000
+    command: npm run dev -- --host 0.0.0.0
     depends_on:
       - backend
     networks:

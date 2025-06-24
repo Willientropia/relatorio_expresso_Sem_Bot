@@ -10,7 +10,6 @@ function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState('');
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-
   const handleRegister = async (e) => {
     e.preventDefault();
     setMessage('');
@@ -31,9 +30,33 @@ function RegisterPage() {
       setPassword('');
       setConfirmPassword('');
     } catch (err) {
-      setError('Ocorreu um erro ao registrar. Verifique os dados e tente novamente.');
+      console.error('Registration error:', err);
+      
+      if (err.response) {
+        // The request was made and the server responded with a status code
+        // that falls out of the range of 2xx
+        if (err.response.status === 401) {
+          setError('Erro de autenticação. Verifique se o backend está configurado corretamente.');
+        } else if (err.response.data && err.response.data.detail) {
+          setError(`Erro: ${err.response.data.detail}`);
+        } else if (err.response.data) {
+          // Try to extract validation errors
+          const validationErrors = Object.entries(err.response.data)
+            .map(([key, value]) => `${key}: ${value.join(', ')}`)
+            .join('; ');
+          setError(`Erros de validação: ${validationErrors}`);
+        } else {
+          setError(`Erro do servidor: ${err.response.status}`);
+        }
+      } else if (err.request) {
+        // The request was made but no response was received
+        setError('Erro de rede: Não foi possível conectar ao servidor. Verifique se o backend está rodando.');
+      } else {
+        // Something happened in setting up the request that triggered an Error
+        setError(`Erro: ${err.message}`);
+      }
+      
       setMessage('');
-      console.error(err);
     }
   };
 

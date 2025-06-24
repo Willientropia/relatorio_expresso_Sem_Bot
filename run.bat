@@ -1,0 +1,3 @@
+@echo off
+echo Iniciando o ambiente Docker para Relatorio-Expresso-Fresh...
+powershell -ExecutionPolicy Bypass -File .\start_docker.ps1

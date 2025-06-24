@@ -5,14 +5,13 @@ import react from '@vitejs/plugin-react'
 export default defineConfig({
   plugins: [react()],
   server: {
-    host: true, // Permite que o servidor seja acessível externamente (necessário para o Docker)
+    host: '0.0.0.0', // Permite que o servidor seja acessível externamente
     port: 5173,
     proxy: {
       // Redireciona requisições de /api para o backend
       '/api': {
-        target: 'http://localhost:8000', // O backend está rodando na porta 8000
+        target: 'http://backend:8000', // Use o nome do serviço definido no docker-compose
         changeOrigin: true, // Necessário para hosts virtuais
-        rewrite: (path) => path.replace(/^\/api/, ''), // Remove /api do caminho da requisição
       },
     },
   },

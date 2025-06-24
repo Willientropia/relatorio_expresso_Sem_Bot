@@ -2,10 +2,11 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://localhost:8000/api', // Adjust this if your setup is different
+  baseURL: '/api', // Usando caminho relativo para que funcione com qualquer IP
   headers: {
     'Content-Type': 'application/json',
   },
+  timeout: 10000, // Add a timeout to prevent hanging requests
 });
 
 // Adiciona um interceptador para incluir o token de acesso em todas as requisições
@@ -18,6 +19,20 @@ apiClient.interceptors.request.use(
     return config;
   },
   (error) => {
+    return Promise.reject(error);
+  }
+);
+
+// Add response interceptor to handle common errors
+apiClient.interceptors.response.use(
+  (response) => {
+    return response;
+  },
+  (error) => {
+    console.error('API Error:', error);
+    if (error.message === 'Network Error') {
+      console.error('Network Error: Cannot connect to the backend server. Please check if the server is running.');
+    }
     return Promise.reject(error);
   }
 );

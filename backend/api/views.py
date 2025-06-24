@@ -24,6 +24,7 @@ from django.http import HttpResponseRedirect
 class RegisterView(generics.CreateAPIView):
     queryset = User.objects.all()
     permission_classes = (permissions.AllowAny,)
+    authentication_classes = []  # No authentication required for registration
     serializer_class = UserSerializer
 
     def create(self, request, *args, **kwargs):
@@ -39,11 +40,12 @@ class RegisterView(generics.CreateAPIView):
         # Generate token and send email
         token = default_token_generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
-        
-        # Build the absolute URL for email confirmation
-        confirm_url = request.build_absolute_uri(
-            reverse('confirm-email', kwargs={'uidb64': uid, 'token': token})
-        )
+          # Build the absolute URL for email confirmation
+        # Usamos o FRONTEND_URL ao invés de construir a URL a partir do request
+        from django.conf import settings
+        base_url = settings.FRONTEND_URL if hasattr(settings, 'FRONTEND_URL') else request.build_absolute_uri('/')
+        confirm_path = reverse('confirm-email', kwargs={'uidb64': uid, 'token': token})
+        confirm_url = base_url.rstrip('/') + confirm_path
 
         send_mail(
             'Confirme seu e-mail',
@@ -57,25 +59,31 @@ class RegisterView(generics.CreateAPIView):
 
 class ConfirmEmailView(generics.GenericAPIView):
     permission_classes = (permissions.AllowAny,)
+    authentication_classes = []  # No authentication required for email confirmation
 
     def get(self, request, uidb64, token, *args, **kwargs):
+        from django.conf import settings
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:5173')
+        
         try:
             uid = force_str(urlsafe_base64_decode(uidb64))
             user = User.objects.get(pk=uid)
+            
+            if default_token_generator.check_token(user, token):
+                if user.is_active:
+                    return HttpResponseRedirect(f'{frontend_url}/login?already_confirmed=true')
+                user.is_active = True
+                user.save()
+                return HttpResponseRedirect(f'{frontend_url}/login?confirmed=true')
+            else:
+                return HttpResponseRedirect(f'{frontend_url}/confirm-email-failed')
+                
         except (TypeError, ValueError, OverflowError, User.DoesNotExist):
-            user = None
-
-        if user is not None and default_token_generator.check_token(user, token):
-            if user.is_active:
-                return HttpResponseRedirect('http://localhost:5173/login?already_confirmed=true')
-            user.is_active = True
-            user.save()
-            return HttpResponseRedirect('http://localhost:5173/login?confirmed=true')
-        else:
-            return HttpResponseRedirect('http://localhost:5173/confirm-email-failed')
+            return HttpResponseRedirect(f'{frontend_url}/confirm-email-failed')
 
 class LoginView(TokenObtainPairView):
     permission_classes = (permissions.AllowAny,)
+    authentication_classes = []  # No authentication required for login
     serializer_class = MyTokenObtainPairSerializer
 
 # --- Views existentes ---

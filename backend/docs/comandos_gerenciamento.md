@@ -1,5 +1,14 @@
 # Comandos de Gerenciamento - Relatorio-Expresso-Fresh
 
+recriar o docker completamente:
+
+.\rebuild_docker.bat
+
+
+
+
+
+
 Este documento contém os comandos de gerenciamento disponíveis para administração do sistema Relatorio-Expresso-Fresh, incluindo gerenciamento de usuários e outras operações relacionadas.
 
 ## Gerenciamento de Usuários
@@ -96,6 +105,49 @@ docker-compose exec backend python manage.py migrate_users_to_empresa_adm
 ```
 
 > Nota: Consulte o código-fonte em `backend/api/management/commands/migrate_users_to_empresa_adm.py` para mais detalhes sobre este comando.
+
+## Solução de Problemas Docker
+
+### Problemas de Build e Cache
+
+Se você encontrar erros ao construir os containers Docker, especialmente erros relacionados a snapshots ou camadas de imagem, pode ser um problema com o cache do Docker. Alguns erros comuns incluem:
+
+```
+failed to solve: failed to prepare extraction snapshot: parent snapshot does not exist: not found
+```
+
+#### Solução 1: Limpar o Cache do Docker
+
+Execute os seguintes comandos para limpar o cache e reconstruir as imagens:
+
+```bash
+# Parar todos os containers
+docker-compose down
+
+# Remover as imagens do projeto
+docker rmi relatorio-expresso-fresh-backend relatorio-expresso-fresh-frontend
+
+# Limpar volumes não utilizados
+docker volume prune -f
+
+# Limpar o cache do builder
+docker builder prune -f
+
+# Reconstruir
+docker-compose up --build
+```
+
+Ou use o script `rebuild_docker.bat` (Windows) ou `rebuild_docker.sh` (Linux/Mac) na raiz do projeto.
+
+#### Solução 2: Verificar Problemas de Rede
+
+Para problemas de "network error" ao acessar o backend a partir do frontend:
+
+1. Verifique se o backend está rodando na porta 8000
+2. Confirme que as configurações CORS estão corretas em `backend/config/settings.py`
+3. Verifique a configuração do apiClient em `frontend/src/services/api.js`
+
+Para mais informações sobre a configuração Docker deste projeto, consulte os arquivos `docker-compose.yml` e `docker-compose.override.yml`.
 
 ## Boas Práticas
 
