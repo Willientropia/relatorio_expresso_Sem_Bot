@@ -20,13 +20,11 @@ createRoot(document.getElementById('root')).render(
         <Route path="/confirm-email-failed" element={<ConfirmEmailPage />} />
 
         {/* Redireciona a rota raiz para a página de login */}
-        <Route path="/" element={<Navigate to="/login" replace />} />
-
-        {/* Rotas Privadas (protegidas pelo PrivateRoute) */}
+        <Route path="/" element={<Navigate to="/login" replace />} />        {/* Rotas Privadas (protegidas pelo PrivateRoute) */}
         <Route element={<PrivateRoute />}>
           <Route element={<App />}>
             <Route path="customer-registration" element={<CustomerRegistration />} />
-            <Route path="/:id" element={<ClientProfile />} />
+            <Route path="/client/:id" element={<ClientProfile />} />
           </Route>
         </Route>
       </Routes>

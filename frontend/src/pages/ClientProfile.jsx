@@ -1,6 +1,6 @@
 // frontend/src/pages/ClientProfile.jsx
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import ClientInfoCard from '../components/ClientInfoCard';
 import TabNavigation from '../components/TabNavigation';
 import UCTable from '../components/UCTable';
@@ -139,15 +139,14 @@ function ClientProfile() {
       </div>
     );
   }
-
   return (
     <div className="min-h-screen bg-gray-100 p-4 md:p-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-6">
-          <a href="/" className="text-indigo-600 hover:text-indigo-800 mb-4 inline-block">
+          <Link to="/customer-registration" className="text-indigo-600 hover:text-indigo-800 mb-4 inline-block">
             <i className="fas fa-arrow-left mr-2"></i>
             Voltar para lista de clientes
-          </a>
+          </Link>
           <h1 className="text-3xl font-bold text-gray-800">Perfil do Cliente</h1>
         </div>
         
