@@ -1,9 +1,9 @@
-const InputField = ({ placeholder, value, onChange }) => {
+const InputField = ({ placeholder, value, onChange, type = 'text' }) => {
   return (
     <input
-      type="text"
+      type={type}
       placeholder={placeholder}
-      className="p-2 border rounded"
+      className="p-2 border rounded w-full"
       value={value}
       onChange={(e) => onChange(e.target.value)}
     />

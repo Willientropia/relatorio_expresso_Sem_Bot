@@ -1,0 +1,19 @@
+# frontend/Dockerfile.dev
+# Use a imagem oficial do Node.js para desenvolvimento
+FROM node:20-slim
+
+# Define o diretório de trabalho dentro do contêiner
+WORKDIR /app
+
+# Copia o package.json e package-lock.json para aproveitar o cache do Docker
+COPY package*.json ./
+
+# Instala as dependências do projeto
+RUN npm install
+
+# Copia o restante do código-fonte do seu aplicativo do host para o sistema de arquivos da imagem.
+# As alterações serão sincronizadas através do volume definido no docker-compose.override.yml
+COPY . .
+
+# Expõe a porta em que o Vite é executado
+EXPOSE 5173
