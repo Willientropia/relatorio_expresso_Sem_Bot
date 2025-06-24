@@ -1,8 +1,15 @@
 # backend/api/urls.py
 from django.urls import path
 from . import views
+from .views import RegisterView, ConfirmEmailView, LoginView
 
 urlpatterns = [
+    # Rotas de Autenticação
+    path('register/', RegisterView.as_view(), name='register'),
+    path('confirm-email/<str:uidb64>/<str:token>/', ConfirmEmailView.as_view(), name='confirm-email'),
+    path('login/', LoginView.as_view(), name='login'),
+
+    # Rotas existentes
     path('customers/', views.customer_list, name='customer_list'),
     path('customers/<int:pk>/', views.customer_detail, name='customer_detail'),
     path('customers/<int:customer_id>/ucs/', views.uc_list, name='uc_list'),

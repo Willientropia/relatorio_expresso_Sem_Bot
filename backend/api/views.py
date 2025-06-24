@@ -1,5 +1,5 @@
 # backend/api/views.py
-from rest_framework import status
+from rest_framework import status, generics, permissions
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from .models import Customer, UnidadeConsumidora, FaturaTask, Fatura
@@ -7,6 +7,73 @@ from rest_framework import serializers
 from django.utils import timezone
 from django.db import transaction
 import threading
+
+# Imports para autenticação
+from django.contrib.auth.models import User
+from rest_framework_simplejwt.views import TokenObtainPairView
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.utils.encoding import force_bytes, force_str
+from django.contrib.auth.tokens import default_token_generator
+from django.core.mail import send_mail
+from django.urls import reverse
+from .serializers import UserSerializer, MyTokenObtainPairSerializer
+from django.http import HttpResponseRedirect
+
+# --- Views de Autenticação ---
+
+class RegisterView(generics.CreateAPIView):
+    queryset = User.objects.all()
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = UserSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = serializer.save()
+
+        # Generate token and send email
+        token = default_token_generator.make_token(user)
+        uid = urlsafe_base64_encode(force_bytes(user.pk))
+        
+        # Build the absolute URL for email confirmation
+        confirm_url = request.build_absolute_uri(
+            reverse('confirm-email', kwargs={'uidb64': uid, 'token': token})
+        )
+
+        send_mail(
+            'Confirme seu e-mail',
+            f'Por favor, clique no link para confirmar seu registro: {confirm_url}',
+            'from@example.com',
+            [user.email],
+            fail_silently=False,
+        )
+
+        return Response({"user": serializer.data, "message": "Registro bem-sucedido. Por favor, verifique seu e-mail para confirmação."}, status=status.HTTP_201_CREATED)
+
+class ConfirmEmailView(generics.GenericAPIView):
+    permission_classes = (permissions.AllowAny,)
+
+    def get(self, request, uidb64, token, *args, **kwargs):
+        try:
+            uid = force_str(urlsafe_base64_decode(uidb64))
+            user = User.objects.get(pk=uid)
+        except (TypeError, ValueError, OverflowError, User.DoesNotExist):
+            user = None
+
+        if user is not None and default_token_generator.check_token(user, token):
+            if user.is_active:
+                return HttpResponseRedirect('http://localhost:5173/login?already_confirmed=true')
+            user.is_active = True
+            user.save()
+            return HttpResponseRedirect('http://localhost:5173/login?confirmed=true')
+        else:
+            return HttpResponseRedirect('http://localhost:5173/confirm-email-failed')
+
+class LoginView(TokenObtainPairView):
+    permission_classes = (permissions.AllowAny,)
+    serializer_class = MyTokenObtainPairSerializer
+
+# --- Views existentes ---
 
 class CustomerSerializer(serializers.ModelSerializer):
     data_nascimento = serializers.DateField(format='%Y-%m-%d', input_formats=['%Y-%m-%d', '%d/%m/%Y'])

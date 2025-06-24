@@ -2,6 +2,8 @@
 services:
   db:
     image: postgres:16-alpine
+    ports:
+      - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     environment:
@@ -13,6 +15,8 @@ services:
 
   backend:
     build: ./backend
+    ports:
+      - "8000:8000"
     volumes:
       - ./backend:/app
       # Use a bind mount to map the host directory directly to the container

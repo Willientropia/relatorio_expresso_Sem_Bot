@@ -2,11 +2,27 @@
 import axios from 'axios';
 
 const apiClient = axios.create({
-  baseURL: 'http://localhost/api', // Adjust this if your setup is different
+  baseURL: 'http://localhost:8000/api', // Adjust this if your setup is different
   headers: {
     'Content-Type': 'application/json',
   },
 });
+
+// Adiciona um interceptador para incluir o token de acesso em todas as requisições
+apiClient.interceptors.request.use(
+  (config) => {
+    const token = localStorage.getItem('accessToken');
+    if (token) {
+      config.headers['Authorization'] = `Bearer ${token}`;
+    }
+    return config;
+  },
+  (error) => {
+    return Promise.reject(error);
+  }
+);
+
+export { apiClient }; // Use a named export
 
 export const fetchTasks = (customerId) => {
   return apiClient.get(`/customers/${customerId}/faturas/tasks/`);

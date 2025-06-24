@@ -1,0 +1,46 @@
+{
+    "info": {
+        "_postman_id": "a8c1b2d3-e4f5-4a6b-8c9d-0e1f2a3b4c5d",
+        "name": "Relatorio Expresso Fresh - Auth",
+        "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+    },
+    "item": [
+        {
+            "name": "Register New User",
+            "request": {
+                "method": "POST",
+                "header": [
+                    {
+                        "key": "Content-Type",
+                        "value": "application/json",
+                        "type": "text"
+                    }
+                ],
+                "body": {
+                    "mode": "raw",
+                    "raw": "{\n    \"username\": \"willie\",\n    \"email\": \"pedro@soltech.net.br\",\n    \"password\": \"password123\"\n}",
+                    "options": {
+                        "raw": {
+                            "language": "json"
+                        }
+                    }
+                },
+                "url": {
+                    "raw": "http://localhost:8000/api/register/",
+                    "protocol": "http",
+                    "host": [
+                        "localhost"
+                    ],
+                    "port": "8000",
+                    "path": [
+                        "api",
+                        "register",
+                        ""
+                    ]
+                },
+                "description": "Tenta registrar um novo usuário. O backend deve responder com uma mensagem e enviar um e-mail de confirmação (para o console)."
+            },
+            "response": []
+        }
+    ]
+}
