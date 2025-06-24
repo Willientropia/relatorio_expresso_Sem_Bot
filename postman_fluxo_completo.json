@@ -1,0 +1,96 @@
+{
+  "info": {
+    "_postman_id": "relatorio-expresso-fresh-completo-2025",
+    "name": "Relatorio Expresso Fresh - Fluxo Completo",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Register New User",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json", "type": "text" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n    \"username\": \"willie\",\n    \"email\": \"pedro@soltech.net.br\",\n    \"password\": \"123\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/register/",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "register", ""]
+        },
+        "description": "Tenta registrar um novo usuário. O backend deve responder com uma mensagem e enviar um e-mail de confirmação (para o console)."
+      },
+      "response": []
+    },
+    {
+      "name": "Login Usuário",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "if (pm.response.code === 200) {",
+              "    const data = pm.response.json();",
+              "    if (data.access) {",
+              "        pm.environment.set(\"jwt_token\", data.access);",
+              "    } else {",
+              "        pm.environment.unset(\"jwt_token\");",
+              "        console.warn(\"Campo 'access' não encontrado na resposta.\");",
+              "    }",
+              "} else {",
+              "    pm.environment.unset(\"jwt_token\");",
+              "    console.warn(\"Login falhou.\");",
+              "}"
+            ],
+            "type": "text/javascript"
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"username\": \"pedro@soltech.net.br\",\n  \"password\": \"123\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/login/",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "login", ""]
+        }
+      },
+      "response": []
+    },
+    {
+      "name": "Criar Cliente",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" },
+          { "key": "Authorization", "value": "Bearer {{jwt_token}}" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"nome\": \"Pedro Willie\",\n  \"cpf\": \"06703823103\",\n  \"cpf_titular\": \"06703823103\",\n  \"data_nascimento\": \"2003-12-20\",\n  \"endereco\": \"Goiânia\",\n  \"telefone\": \"64992874221\",\n  \"email\": \"willie@engenaria.com\"\n}"
+        },
+        "url": {
+          "raw": "http://localhost:8000/api/customers/",
+          "protocol": "http",
+          "host": ["localhost"],
+          "port": "8000",
+          "path": ["api", "customers", ""]
+        }
+      },
+      "response": []
+    }
+  ]
+}

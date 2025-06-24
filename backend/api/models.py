@@ -3,6 +3,7 @@ from django.db import models
 from django.utils import timezone
 from django.utils.text import get_valid_filename
 import os
+from django.contrib.auth.models import User
 
 def fatura_upload_path(instance, filename):
     # Extrai o mês e ano da data de referência
@@ -29,6 +30,7 @@ def upload_to(instance, filename):
     return os.path.join('faturas', folder_path, new_filename)
 
 class Customer(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='customers', null=True, blank=True)
     nome = models.CharField(max_length=100)
     cpf = models.CharField(max_length=14, unique=True)
     cpf_titular = models.CharField(max_length=14, blank=True, null=True, 

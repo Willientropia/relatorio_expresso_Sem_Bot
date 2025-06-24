@@ -18,7 +18,7 @@
                 ],
                 "body": {
                     "mode": "raw",
-                    "raw": "{\n    \"username\": \"willie\",\n    \"email\": \"pedro@soltech.net.br\",\n    \"password\": \"password123\"\n}",
+                    "raw": "{\n    \"username\": \"willie\",\n    \"email\": \"pedro@soltech.net.br\",\n    \"password\": \"123\"\n}",
                     "options": {
                         "raw": {
                             "language": "json"

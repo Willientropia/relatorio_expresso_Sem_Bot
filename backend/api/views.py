@@ -31,6 +31,11 @@ class RegisterView(generics.CreateAPIView):
         serializer.is_valid(raise_exception=True)
         user = serializer.save()
 
+        # Adicionar o usuário ao grupo 'empresa_adm' (criar o grupo se não existir)
+        from django.contrib.auth.models import Group
+        empresa_adm_group, created = Group.objects.get_or_create(name='empresa_adm')
+        user.groups.add(empresa_adm_group)
+        
         # Generate token and send email
         token = default_token_generator.make_token(user)
         uid = urlsafe_base64_encode(force_bytes(user.pk))
@@ -95,15 +100,16 @@ class UnidadeConsumidoraSerializer(serializers.ModelSerializer):
 
 @api_view(['GET', 'POST'])
 def customer_list(request):
+    user = request.user
     if request.method == 'GET':
-        customers = Customer.objects.all()
+        customers = Customer.objects.filter(user=user)
         serializer = CustomerSerializer(customers, many=True)
         return Response(serializer.data)
 
     elif request.method == 'POST':
         serializer = CustomerSerializer(data=request.data)
         if serializer.is_valid():
-            serializer.save()
+            serializer.save(user=user)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
