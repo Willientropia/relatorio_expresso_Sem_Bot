@@ -1,5 +1,16 @@
 # docker-compose.yml
 services:
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - postgres_data:/var/lib/postgresql/data/
+    environment:
+      - POSTGRES_DB=relatorio_expresso_db
+      - POSTGRES_USER=user
+      - POSTGRES_PASSWORD=password
+    networks:
+      - app-network
+
   backend:
     build: ./backend
     volumes:
@@ -11,7 +22,14 @@ services:
     environment:
       - DEBUG=1
       - DJANGO_ALLOWED_HOSTS=localhost,127.0.0.1,backend
-    command: sh -c "python manage.py migrate && python manage.py runserver 0.0.0.0:8000"
+      - DB_NAME=relatorio_expresso_db
+      - DB_USER=user
+      - DB_PASS=password
+      - DB_HOST=db
+      - DB_PORT=5432
+    command: sh -c "python manage.py runserver 0.0.0.0:8000"
+    depends_on:
+      - db
     networks:
       - app-network
 
@@ -32,3 +50,6 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  postgres_data:

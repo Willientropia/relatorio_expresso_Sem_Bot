@@ -7,6 +7,14 @@ import UCTable from '../components/UCTable';
 import EmptyState from '../components/EmptyState';
 import ActionButton from '../components/ActionButton';
 import FaturaImport from '../components/FaturaImport';
+import { 
+  fetchCustomer as apiFetchCustomer,
+  fetchUCs as apiFetchUCs,
+  addUC as apiAddUC,
+  deleteUC as apiDeleteUC,
+  toggleUCStatus as apiToggleUCStatus,
+  updateUC as apiUpdateUC 
+} from '../services/api';
 
 function ClientProfile() {
   const [client, setClient] = useState(null);
@@ -18,10 +26,9 @@ function ClientProfile() {
 
   const fetchUCs = async () => {
     try {
-      const response = await fetch(`/api/customers/${id}/ucs/`);
-      if (response.ok) {
-        const data = await response.json();
-        setUcs(data);
+      const response = await apiFetchUCs(id);
+      if (response.status === 200) {
+        setUcs(response.data);
       }
     } catch (error) {
       console.error('Error fetching UCs:', error);
@@ -33,10 +40,9 @@ function ClientProfile() {
       setLoading(true);
       try {
         // Fetch client data
-        const clientResponse = await fetch(`/api/customers/${id}/`);
-        if (clientResponse.ok) {
-          const clientData = await clientResponse.json();
-          setClient(clientData);
+        const clientResponse = await apiFetchCustomer(id);
+        if (clientResponse.status === 200) {
+          setClient(clientResponse.data);
         }
         
         // Fetch UCs
@@ -54,19 +60,12 @@ function ClientProfile() {
 
   const handleAddUc = async (newUc) => {
     try {
-      const response = await fetch(`/api/customers/${id}/ucs/`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(newUc)
-      });
+      const response = await apiAddUC(id, newUc);
       
-      if (response.ok) {
-        const data = await response.json();
-        setUcs([...ucs, data]);
+      if (response.status === 201) { // HTTP 201 for created
+        setUcs([...ucs, response.data]);
       } else {
-        const error = await response.json();
+        const error = response.data;
         alert('Erro ao adicionar UC: ' + (error.codigo?.[0] || error.detail || 'Erro desconhecido'));
       }
     } catch (error) {
@@ -79,14 +78,12 @@ function ClientProfile() {
     if (!confirm('Tem certeza que deseja excluir esta UC?')) return;
     
     try {
-      const response = await fetch(`/api/customers/${id}/ucs/${ucId}/`, {
-        method: 'DELETE'
-      });
+      const response = await apiDeleteUC(id, ucId);
       
-      if (response.ok) {
+      if (response.status === 204) { // HTTP 204 for no content
         setUcs(ucs.filter(uc => uc.id !== ucId));
       } else {
-        const error = await response.json();
+        const error = response.data;
         alert('Erro: ' + (error.error || 'Não foi possível excluir a UC'));
       }
     } catch (error) {
@@ -97,12 +94,10 @@ function ClientProfile() {
 
   const handleToggleStatus = async (ucId) => {
     try {
-      const response = await fetch(`/api/customers/${id}/ucs/${ucId}/toggle/`, {
-        method: 'POST'
-      });
+      const response = await apiToggleUCStatus(id, ucId);
       
-      if (response.ok) {
-        const updatedUc = await response.json();
+      if (response.status === 200) {
+        const updatedUc = response.data;
         setUcs(ucs.map(uc => uc.id === ucId ? updatedUc : uc));
       } else {
         alert('Erro ao alterar status da UC');
@@ -115,23 +110,17 @@ function ClientProfile() {
 
   const handleEditUc = async (editedUc) => {
     try {
-      const response = await fetch(`/api/customers/${id}/ucs/${editedUc.id}/`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          codigo: editedUc.codigo,
-          endereco: editedUc.endereco,
-          tipo: editedUc.tipo
-        })
+      const response = await apiUpdateUC(id, editedUc.id, {
+        codigo: editedUc.codigo,
+        endereco: editedUc.endereco,
+        tipo: editedUc.tipo
       });
       
-      if (response.ok) {
-        const updatedUc = await response.json();
+      if (response.status === 200) {
+        const updatedUc = response.data;
         setUcs(ucs.map(uc => uc.id === editedUc.id ? updatedUc : uc));
       } else {
-        const error = await response.json();
+        const error = response.data;
         alert('Erro ao editar UC: ' + (error.detail || 'Erro desconhecido'));
       }
     } catch (error) {

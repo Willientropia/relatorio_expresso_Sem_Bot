@@ -3,14 +3,18 @@ import { useState, useEffect } from 'react'
 import CustomerTable from './components/CustomerTable'
 import InputField from './components/InputField'
 import { formatDateForBackend } from './utils/dateUtils'
+import { 
+  fetchCustomers as apiFetchCustomers,
+  addCustomer as apiAddCustomer,
+  deleteCustomer as apiDeleteCustomer
+} from './services/api';
 
 function App() {
   const [customers, setCustomers] = useState([]);
   
   useEffect(() => {
-    fetch('/api/customers/')
-      .then(response => response.json())
-      .then(data => setCustomers(data))
+    apiFetchCustomers()
+      .then(response => setCustomers(response.data))
       .catch(error => console.error('Error:', error));
   }, []);
   
@@ -32,16 +36,9 @@ function App() {
         data_nascimento: formatDateForBackend(newCustomer.data_nascimento)
       };
       
-      fetch('/api/customers/', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(customerData)
-      })
-        .then(response => response.json())
-        .then(data => {
-          setCustomers([...customers, data]);
+      apiAddCustomer(customerData)
+        .then(response => {
+          setCustomers([...customers, response.data]);
           setNewCustomer({ 
             nome: '', 
             cpf: '', 
@@ -57,9 +54,7 @@ function App() {
   };
 
   const handleDeleteCustomer = (id) => {
-    fetch(`/api/customers/${id}/`, {
-      method: 'DELETE'
-    })
+    apiDeleteCustomer(id)
       .then(() => {
         setCustomers(customers.filter(customer => customer.id !== id));
       })

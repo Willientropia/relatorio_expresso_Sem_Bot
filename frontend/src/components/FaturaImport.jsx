@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react';
 import ActionButton from './ActionButton';
 import EmptyState from './EmptyState';
+import { fetchTasks as apiFetchTasks, fetchFaturas as apiFetchFaturas, fetchLogs as apiFetchLogs, startImport as apiStartImport } from '../services/api';
 
 const FaturaImport = ({ customerId }) => {
   const [tasks, setTasks] = useState([]);
@@ -14,13 +15,12 @@ const FaturaImport = ({ customerId }) => {
   // Busca tarefas em andamento
   const fetchTasks = async () => {
     try {
-      const response = await fetch(`/api/customers/${customerId}/faturas/tasks/`);
-      if (response.ok) {
-        const data = await response.json();
-        setTasks(data);
+      const response = await apiFetchTasks(customerId);
+      if (response.status === 200) {
+        setTasks(response.data);
         
         // Verifica se há tarefas em andamento
-        const hasActiveTask = data.some(task => 
+        const hasActiveTask = response.data.some(task => 
           task.status === 'pending' || task.status === 'processing'
         );
         setImporting(hasActiveTask);
@@ -33,10 +33,9 @@ const FaturaImport = ({ customerId }) => {
   // Busca faturas baixadas
   const fetchFaturas = async () => {
     try {
-      const response = await fetch(`/api/customers/${customerId}/faturas/`);
-      if (response.ok) {
-        const data = await response.json();
-        setFaturas(data);
+      const response = await apiFetchFaturas(customerId);
+      if (response.status === 200) {
+        setFaturas(response.data);
       }
     } catch (error) {
       console.error('Erro ao buscar faturas:', error);
@@ -46,10 +45,9 @@ const FaturaImport = ({ customerId }) => {
   // Busca logs
   const fetchLogs = async () => {
     try {
-      const response = await fetch(`/api/customers/${customerId}/faturas/logs/`);
-      if (response.ok) {
-        const data = await response.json();
-        setLogs(data);
+      const response = await apiFetchLogs(customerId);
+      if (response.status === 200) {
+        setLogs(response.data);
       }
     } catch (error) {
       console.error('Erro ao buscar logs:', error);
@@ -75,17 +73,14 @@ const FaturaImport = ({ customerId }) => {
   const handleStartImport = async () => {
     setLoading(true);
     try {
-      const response = await fetch(`/api/customers/${customerId}/faturas/import/`, {
-        method: 'POST'
-      });
+      const response = await apiStartImport(customerId);
       
-      if (response.ok) {
-        const data = await response.json();
+      if (response.status === 200) {
         alert('Importação iniciada com sucesso!');
         setImporting(true);
         fetchTasks();
       } else {
-        const error = await response.json();
+        const error = response.data;
         alert(`Erro: ${error.error || 'Não foi possível iniciar a importação'}`);
       }
     } catch (error) {

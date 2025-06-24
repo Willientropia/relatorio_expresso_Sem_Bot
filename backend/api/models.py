@@ -86,61 +86,35 @@ class UnidadeConsumidora(models.Model):
             )
         ]
 
-
 class Fatura(models.Model):
-    # ID customizado: UC_MES_ANO (ex: 12345678_01_2025)
-    id = models.CharField(primary_key=True, max_length=255, editable=False)
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='faturas')
     unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='faturas')
     mes_referencia = models.DateField()
-    arquivo = models.FileField(upload_to=upload_to, max_length=500)
-    valor = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
-    vencimento = models.DateField(null=True, blank=True)
-    downloaded_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        # Garante que não haverá faturas duplicadas para a mesma UC no mesmo mês
-        unique_together = ('unidade_consumidora', 'mes_referencia')
-        ordering = ['-mes_referencia']
-
-    def save(self, *args, **kwargs):
-        if not self.id:
-            # Gera o ID customizado antes de salvar
-            mes_ano_id_str = self.mes_referencia.strftime('%m_%Y')
-            self.id = f"{self.unidade_consumidora.codigo}_{mes_ano_id_str}"
-        super().save(*args, **kwargs)
+    arquivo = models.FileField(upload_to=upload_to)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Fatura {self.id}"
+        return f"Fatura {self.unidade_consumidora.codigo} - {self.mes_referencia.strftime('%m/%Y')}"
 
+    class Meta:
+        ordering = ['-mes_referencia']
+        unique_together = ('unidade_consumidora', 'mes_referencia')
 
 class FaturaTask(models.Model):
-    """Modelo para armazenar tarefas de download de faturas"""
     STATUS_CHOICES = [
-        ('pending', 'Pendente'),
-        ('processing', 'Processando'),
-        ('completed', 'Concluída'),
-        ('failed', 'Falhou'),
+        ('PENDING', 'Pendente'),
+        ('IN_PROGRESS', 'Em Progresso'),
+        ('SUCCESS', 'Sucesso'),
+        ('FAILURE', 'Falha'),
     ]
-    
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='fatura_tasks')
-    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='fatura_tasks')
-    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='pending')
+    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='tasks')
+    mes_referencia = models.DateField()
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     created_at = models.DateTimeField(auto_now_add=True)
-    completed_at = models.DateTimeField(null=True, blank=True)
-    error_message = models.TextField(null=True, blank=True)  # Permitir que seja nulo
-    
-    class Meta:
-        ordering = ['-created_at']
+    updated_at = models.DateTimeField(auto_now=True)
 
+    def __str__(self):
+        return f"Task {self.id} - UC {self.unidade_consumidora.codigo} - {self.mes_referencia.strftime('%m/%Y')} [{self.status}]"
 
-class FaturaLog(models.Model):
-    """Log de buscas de faturas por CPF"""
-    cpf_titular = models.CharField(max_length=14)
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='fatura_logs')
-    ucs_encontradas = models.JSONField(default=list)  # Lista de UCs encontradas
-    faturas_encontradas = models.JSONField(default=dict)  # Dict com UC como chave e lista de faturas como valor
-    created_at = models.DateTimeField(auto_now_add=True)
-    
     class Meta:
         ordering = ['-created_at']
