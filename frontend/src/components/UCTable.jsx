@@ -269,6 +269,26 @@ const UCTable = ({ ucs, onAddUc, onDeleteUc, onToggleStatus, onEditUc }) => {
                   <option value="Rural">Rural</option>
                 </select>
               </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data Início Vigência</label>
+                <input
+                  type="date"
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                  value={editingUc.data_vigencia_inicio || ''}
+                  onChange={(e) => setEditingUc({ ...editingUc, data_vigencia_inicio: e.target.value })}
+                />
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Data Fim Vigência</label>
+                <input
+                  type="date"
+                  className="w-full p-2 border border-gray-300 rounded-md focus:ring-indigo-500 focus:border-indigo-500"
+                  value={editingUc.data_vigencia_fim || ''}
+                  onChange={(e) => setEditingUc({ ...editingUc, data_vigencia_fim: e.target.value })}
+                />
+              </div>
             </div>
             
             <div className="mt-6 flex justify-end space-x-3">

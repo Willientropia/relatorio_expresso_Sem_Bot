@@ -28,7 +28,6 @@ docker builder prune -f
 
 Write-Host "Reconstruindo com docker-compose usando IP: $ipAddress..."
 $env:HOST_IP = $ipAddress
-Copy-Item docker-compose.yml.new docker-compose.yml -Force
 docker compose up --build
 
 # O script continuará executando enquanto os containers estiverem em execução

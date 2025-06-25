@@ -113,7 +113,9 @@ function ClientProfile() {
       const response = await apiUpdateUC(id, editedUc.id, {
         codigo: editedUc.codigo,
         endereco: editedUc.endereco,
-        tipo: editedUc.tipo
+        tipo: editedUc.tipo,
+        data_vigencia_inicio: editedUc.data_vigencia_inicio,
+        data_vigencia_fim: editedUc.data_vigencia_fim,
       });
       
       if (response.status === 200) {

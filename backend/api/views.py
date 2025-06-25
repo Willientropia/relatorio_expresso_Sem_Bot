@@ -241,7 +241,7 @@ def get_fatura_tasks(request, customer_id):
     """Retorna o status das tarefas de importação"""
     try:
         customer = Customer.objects.get(pk=customer_id)
-        tasks = FaturaTask.objects.filter(customer=customer).order_by('-created_at')[:10]
+        tasks = FaturaTask.objects.filter(unidade_consumidora__customer=customer).order_by('-created_at')[:10]
         serializer = FaturaTaskSerializer(tasks, many=True)
         return Response(serializer.data)
     except Customer.DoesNotExist:
@@ -253,7 +253,7 @@ def get_faturas(request, customer_id):
     """Retorna as faturas baixadas do cliente"""
     try:
         customer = Customer.objects.get(pk=customer_id)
-        faturas = Fatura.objects.filter(customer=customer).order_by('-mes_referencia')
+        faturas = Fatura.objects.filter(unidade_consumidora__customer=customer).order_by('-mes_referencia')
         serializer = FaturaSerializer(faturas, many=True, context={'request': request})
         return Response(serializer.data)
     except Customer.DoesNotExist:

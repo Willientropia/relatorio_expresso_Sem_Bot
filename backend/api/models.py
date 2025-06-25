@@ -68,10 +68,8 @@ class UnidadeConsumidora(models.Model):
     
     @property
     def is_active(self):
-        """UC é ativa se não tem data de fim ou se a data de fim é futura"""
-        if self.data_vigencia_fim is None:
-            return True
-        return self.data_vigencia_fim > timezone.now().date()
+        """UC é ativa se a data de fim de vigência não estiver definida."""
+        return self.data_vigencia_fim is None
     
     def __str__(self):
         status = "Ativa" if self.is_active else "Inativa"
@@ -92,6 +90,9 @@ class Fatura(models.Model):
     unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='faturas')
     mes_referencia = models.DateField()
     arquivo = models.FileField(upload_to=upload_to)
+    valor = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    vencimento = models.DateField(null=True, blank=True)
+    downloaded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -112,6 +113,8 @@ class FaturaTask(models.Model):
     unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='tasks')
     mes_referencia = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
+    completed_at = models.DateTimeField(null=True, blank=True)
+    error_message = models.TextField(blank=True, null=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
