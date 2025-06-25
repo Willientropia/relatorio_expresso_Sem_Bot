@@ -1,15 +1,12 @@
-# fly.toml app configuration file generated for relatorio-expresso-sem-bot on 2025-06-25T02:46:38Z
+# fly.toml app configuration file generated for relatorio-expresso on 2025-06-25T03:10:45Z
 #
 # See https://fly.io/docs/reference/configuration/ for information about how to use this file.
 #
 
-app = 'relatorio-expresso-sem-bot'
+app = 'relatorio-expresso'
 primary_region = 'gru'
 
 [build]
-
-[env]
-  PORT = '8080'
 
 [http_service]
   internal_port = 8080
