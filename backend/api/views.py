@@ -258,3 +258,16 @@ def get_faturas(request, customer_id):
         return Response(serializer.data)
     except Customer.DoesNotExist:
         return Response(status=status.HTTP_404_NOT_FOUND)
+    
+
+@api_view(['POST'])
+def start_fatura_import(request, customer_id):
+    # Aqui você implementará a lógica para iniciar a importação de faturas.
+    # Por enquanto, podemos retornar uma mensagem de sucesso.
+    try:
+        customer = Customer.objects.get(pk=customer_id)
+        # Exemplo: iniciar uma task em background (não implementado aqui)
+        print(f"Iniciando importação para o cliente: {customer.nome}")
+        return Response({"message": "Importação de faturas iniciada com sucesso."}, status=status.HTTP_200_OK)
+    except Customer.DoesNotExist:
+        return Response({"error": "Cliente não encontrado."}, status=status.HTTP_404_NOT_FOUND)

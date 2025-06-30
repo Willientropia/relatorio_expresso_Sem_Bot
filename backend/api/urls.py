@@ -19,4 +19,5 @@ urlpatterns = [
     # Novas rotas para faturas
     path('customers/<int:customer_id>/faturas/tasks/', views.get_fatura_tasks, name='get_fatura_tasks'),
     path('customers/<int:customer_id>/faturas/', views.get_faturas, name='get_faturas'),
+    path('customers/<int:customer_id>/faturas/import/', views.start_fatura_import, name='start_fatura_import'),
 ]

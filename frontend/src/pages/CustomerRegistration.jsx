@@ -11,6 +11,7 @@ import {
 
 function CustomerRegistration() {
   const [customers, setCustomers] = useState([]);
+  const [error, setError] = useState('');
   
   useEffect(() => {
     apiFetchCustomers()
@@ -30,7 +31,8 @@ function CustomerRegistration() {
 
   const handleAddCustomer = () => {
     if (newCustomer.nome && newCustomer.cpf && newCustomer.endereco) {
-      // Prepara os dados formatando a data corretamente
+      setError('');
+      
       const customerData = {
         ...newCustomer,
         data_nascimento: formatDateForBackend(newCustomer.data_nascimento)
@@ -49,7 +51,20 @@ function CustomerRegistration() {
             email: ''
           });
         })
-        .catch(error => console.error('Error:', error));
+        .catch(err => {
+          console.error('Error:', err);
+          if (err.response && err.response.data) {
+            // Formata os erros vindos do Django para exibição
+            const errorMessages = Object.entries(err.response.data)
+              .map(([field, messages]) => `${field}: ${messages.join(', ')}`)
+              .join('; ');
+            setError(`Erro ao adicionar cliente: ${errorMessages}`);
+          } else {
+            setError('Erro ao adicionar cliente. Verifique o console para mais detalhes.');
+          }
+        });
+    } else {
+        setError('Por favor, preencha todos os campos obrigatórios (*).');
     }
   };
 
@@ -67,6 +82,12 @@ function CustomerRegistration() {
       
       <div className="bg-white p-6 rounded-lg shadow-md max-w-6xl mx-auto">
         <h2 className="text-xl font-semibold mb-4">Novo Cliente</h2>
+        
+        {error && (
+          <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative mb-4" role="alert">
+            <span className="block sm:inline">{error}</span>
+          </div>
+        )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
           <div>
