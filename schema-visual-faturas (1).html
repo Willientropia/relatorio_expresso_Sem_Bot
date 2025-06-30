@@ -1,0 +1,592 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Schema de Banco de Dados - Gestão de Faturas</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #2a2a2a;
+            color: #ffffff;
+            overflow: auto;
+        }
+        
+        .container {
+            min-width: 1600px;
+            min-height: 1000px;
+            position: relative;
+            padding: 40px;
+        }
+        
+        .schema-header {
+            position: absolute;
+            top: 10px;
+            left: 20px;
+            font-size: 14px;
+            color: #888;
+        }
+        
+        .table {
+            position: absolute;
+            background-color: #3a3a3a;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+            min-width: 280px;
+            overflow: hidden;
+        }
+        
+        .table-header {
+            background-color: #d63031;
+            color: white;
+            padding: 12px 16px;
+            font-weight: 600;
+            font-size: 14px;
+            text-align: center;
+        }
+        
+        .table-header.green {
+            background-color: #00b894;
+        }
+        
+        .table-header.blue {
+            background-color: #0984e3;
+        }
+        
+        .table-header.purple {
+            background-color: #6c5ce7;
+        }
+        
+        .field {
+            padding: 8px 16px;
+            border-bottom: 1px solid #2a2a2a;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            position: relative;
+        }
+        
+        .field:last-child {
+            border-bottom: none;
+        }
+        
+        .field-name {
+            flex: 1;
+        }
+        
+        .field-type {
+            color: #888;
+            font-size: 12px;
+            margin-left: 20px;
+        }
+        
+        .key-icon {
+            width: 14px;
+            height: 14px;
+            margin-right: 6px;
+            display: inline-block;
+            vertical-align: middle;
+        }
+        
+        .key-icon.pk {
+            content: '🔑';
+        }
+        
+        .key-icon.fk {
+            content: '🔗';
+        }
+        
+        svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: -1;
+        }
+        
+        .relation-line {
+            stroke: #888;
+            stroke-width: 2;
+            fill: none;
+            marker-end: url(#arrowhead);
+        }
+        
+        .highlight {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        
+        .note {
+            position: absolute;
+            background-color: #444;
+            padding: 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            max-width: 200px;
+            line-height: 1.4;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+        
+        .note-title {
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #ffd93d;
+        }
+
+        /* IDs para campos específicos para conexões */
+        .connection-point {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="schema-header">Schema Name: Color</div>
+        
+        <!-- SVG para as linhas de relacionamento -->
+        <svg>
+            <defs>
+                <marker id="arrowhead" markerWidth="10" markerHeight="7" 
+                 refX="9" refY="3.5" orient="auto">
+                    <polygon points="0 0, 10 3.5, 0 7" fill="#888" />
+                </marker>
+            </defs>
+        </svg>
+        
+        <!-- Tabela Unidade Consumidora -->
+        <div class="table" id="uc" style="top: 200px; left: 50px;">
+            <div class="table-header blue">public: api_unidade_consumidora</div>
+            <div class="field" data-field="uc_id">
+                <span><span class="key-icon pk">🔑</span> id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field">
+                <span>codigo</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>endereco</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>tipo</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>distribuidora</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>created_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+            <div class="field">
+                <span>updated_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+        </div>
+        
+        <!-- Tabela Titularidade UC (Relacionamento temporal) -->
+        <div class="table" id="titularidade" style="top: 200px; left: 450px;">
+            <div class="table-header purple">public: api_titularidade_uc</div>
+            <div class="field">
+                <span><span class="key-icon pk">🔑</span> id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field highlight" data-field="tit_customer_id">
+                <span><span class="key-icon fk">🔗</span> customer_id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field highlight" data-field="tit_uc_id">
+                <span><span class="key-icon fk">🔗</span> unidade_consumidora_id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field">
+                <span>data_inicio</span>
+                <span class="field-type">date</span>
+            </div>
+            <div class="field">
+                <span>data_fim</span>
+                <span class="field-type">date</span>
+            </div>
+            <div class="field">
+                <span>ativo</span>
+                <span class="field-type">boolean</span>
+            </div>
+            <div class="field">
+                <span>motivo_encerramento</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>created_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+            <div class="field">
+                <span>updated_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+        </div>
+        
+        <!-- Tabela Customer -->
+        <div class="table" id="customer" style="top: 200px; left: 900px;">
+            <div class="table-header green">public: api_customer</div>
+            <div class="field" data-field="customer_id">
+                <span><span class="key-icon pk">🔑</span> id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field">
+                <span>nome</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>cpf</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>cpf_titular</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>data_nascimento</span>
+                <span class="field-type">date</span>
+            </div>
+            <div class="field">
+                <span>endereco</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>telefone</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>email</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>created_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+            <div class="field">
+                <span>updated_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+            <div class="field">
+                <span><span class="key-icon fk">🔗</span> user_id</span>
+                <span class="field-type">int4</span>
+            </div>
+        </div>
+        
+        <!-- Tabela Fatura -->
+        <div class="table" id="fatura" style="top: 600px; left: 50px;">
+            <div class="table-header">public: api_fatura</div>
+            <div class="field" data-field="fatura_id">
+                <span><span class="key-icon pk">🔑</span> id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field">
+                <span>mes_referencia</span>
+                <span class="field-type">date</span>
+            </div>
+            <div class="field highlight" data-field="fatura_uc_id">
+                <span><span class="key-icon fk">🔗</span> unidade_consumidora_id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field">
+                <span>arquivo</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>consumo_kwh</span>
+                <span class="field-type">decimal</span>
+            </div>
+            <div class="field">
+                <span>valor_total</span>
+                <span class="field-type">decimal</span>
+            </div>
+            <div class="field">
+                <span>data_vencimento</span>
+                <span class="field-type">date</span>
+            </div>
+            <div class="field">
+                <span>status</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>created_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+            <div class="field">
+                <span>updated_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+        </div>
+        
+        <!-- Tabela Fatura Solar -->
+        <div class="table" id="fatura_solar" style="top: 600px; left: 500px;">
+            <div class="table-header">public: api_fatura_solar</div>
+            <div class="field">
+                <span><span class="key-icon pk">🔑</span> id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field">
+                <span>mes_referencia</span>
+                <span class="field-type">date</span>
+            </div>
+            <div class="field highlight" data-field="fs_fatura_id">
+                <span><span class="key-icon fk">🔗</span> fatura_distribuidora_id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field highlight" data-field="fs_uc_id">
+                <span><span class="key-icon fk">🔗</span> unidade_consumidora_id</span>
+                <span class="field-type">int8</span>
+            </div>
+            <div class="field">
+                <span>arquivo</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>energia_injetada_kwh</span>
+                <span class="field-type">decimal</span>
+            </div>
+            <div class="field">
+                <span>economia_reais</span>
+                <span class="field-type">decimal</span>
+            </div>
+            <div class="field">
+                <span>valor_fatura</span>
+                <span class="field-type">decimal</span>
+            </div>
+            <div class="field">
+                <span>status</span>
+                <span class="field-type">varchar</span>
+            </div>
+            <div class="field">
+                <span>created_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+            <div class="field">
+                <span>updated_at</span>
+                <span class="field-type">timestamp</span>
+            </div>
+        </div>
+        
+        <!-- Notas explicativas -->
+        <div class="note" style="top: 50px; left: 450px;">
+            <div class="note-title">⚡ Ponto Chave!</div>
+            A tabela titularidade_uc resolve o problema de histórico, registrando QUANDO cada cliente foi titular de cada UC.
+        </div>
+        
+        <div class="note" style="top: 50px; left: 900px;">
+            <div class="note-title">📅 Exemplo:</div>
+            Pedro: UC 123 (ago-dez/2024)<br>
+            Lucas: UC 123 (jan/2025-atual)<br>
+            <br>
+            Mesma UC, titulares diferentes por período!
+        </div>
+
+        <div class="note" style="top: 500px; left: 900px;">
+            <div class="note-title">💡 Fluxo:</div>
+            1. Fatura vinculada à UC<br>
+            2. UC tem histórico de titulares<br>
+            3. Sistema identifica o titular correto pela data
+        </div>
+    </div>
+    
+    <script>
+        // Sistema de drag and drop
+        let draggedElement = null;
+        let offsetX = 0;
+        let offsetY = 0;
+        let connections = [];
+
+        // Definir conexões
+        const connectionDefinitions = [
+            { from: 'uc_id', to: 'tit_uc_id', fromSide: 'right', toSide: 'left' },
+            { from: 'tit_customer_id', to: 'customer_id', fromSide: 'right', toSide: 'left' },
+            { from: 'uc_id', to: 'fatura_uc_id', fromSide: 'left', toSide: 'left' },
+            { from: 'fatura_id', to: 'fs_fatura_id', fromSide: 'right', toSide: 'left' },
+            { from: 'uc_id', to: 'fs_uc_id', fromSide: 'bottom', toSide: 'left', special: true }
+        ];
+
+        // Função para obter posição exata de um campo
+        function getFieldPosition(fieldSelector) {
+            const field = document.querySelector(`[data-field="${fieldSelector}"]`);
+            if (!field) return null;
+            
+            const rect = field.getBoundingClientRect();
+            const container = document.querySelector('.container');
+            const containerRect = container.getBoundingClientRect();
+            
+            return {
+                x: rect.left - containerRect.left,
+                y: rect.top - containerRect.top + rect.height / 2,
+                right: rect.right - containerRect.left,
+                bottom: rect.bottom - containerRect.top,
+                width: rect.width,
+                height: rect.height
+            };
+        }
+        
+        // Função para desenhar linha entre campos específicos
+        function drawFieldConnection(fromField, toField, fromSide = 'right', toSide = 'left', isSpecial = false) {
+            const svg = document.querySelector('svg');
+            const from = getFieldPosition(fromField);
+            const to = getFieldPosition(toField);
+            
+            if (!from || !to) return null;
+            
+            let startX, startY, endX, endY;
+            
+            // Define pontos de início baseado no lado
+            if (fromSide === 'right') {
+                startX = from.right;
+                startY = from.y;
+            } else if (fromSide === 'left') {
+                startX = from.x;
+                startY = from.y;
+            } else if (fromSide === 'bottom') {
+                startX = from.x + from.width / 2;
+                startY = from.bottom;
+            }
+            
+            // Define pontos de fim baseado no lado
+            if (toSide === 'left') {
+                endX = to.x;
+                endY = to.y;
+            } else if (toSide === 'right') {
+                endX = to.right;
+                endY = to.y;
+            }
+            
+            // Criar caminho
+            const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+            
+            let d;
+            if (isSpecial) {
+                // Conexão especial que vai por baixo
+                d = `M ${startX} ${startY} 
+                     Q ${startX} ${startY + 200}, 
+                       ${endX - 50} ${endY} 
+                     L ${endX} ${endY}`;
+            } else if (Math.abs(startY - endY) < 50) {
+                // Conexão horizontal
+                const midX = (startX + endX) / 2;
+                const controlOffset = Math.abs(endX - startX) * 0.3;
+                d = `M ${startX} ${startY} C ${startX + controlOffset} ${startY}, ${endX - controlOffset} ${endY}, ${endX} ${endY}`;
+            } else {
+                // Conexão com curva vertical
+                const midY = (startY + endY) / 2;
+                d = `M ${startX} ${startY} Q ${startX + 50} ${startY}, ${startX + 50} ${midY} T ${endX - 50} ${endY} L ${endX} ${endY}`;
+            }
+            
+            path.setAttribute('d', d);
+            path.setAttribute('class', 'relation-line');
+            path.setAttribute('data-from', fromField);
+            path.setAttribute('data-to', toField);
+            svg.appendChild(path);
+            
+            return path;
+        }
+
+        // Função para redesenhar todas as conexões
+        function redrawConnections() {
+            const svg = document.querySelector('svg');
+            // Remover conexões antigas
+            svg.querySelectorAll('.relation-line').forEach(line => line.remove());
+            
+            // Redesenhar todas as conexões
+            connectionDefinitions.forEach(conn => {
+                drawFieldConnection(conn.from, conn.to, conn.fromSide, conn.toSide, conn.special);
+            });
+        }
+
+        // Adicionar funcionalidade de drag aos cards
+        document.querySelectorAll('.table').forEach(table => {
+            // Tornar a tabela arrastável apenas pelo header
+            const header = table.querySelector('.table-header');
+            header.style.cursor = 'move';
+            
+            header.addEventListener('mousedown', (e) => {
+                draggedElement = table;
+                const rect = table.getBoundingClientRect();
+                offsetX = e.clientX - rect.left;
+                offsetY = e.clientY - rect.top;
+                
+                // Adicionar classe para feedback visual
+                table.style.opacity = '0.8';
+                table.style.zIndex = '1000';
+                
+                e.preventDefault();
+            });
+        });
+
+        // Eventos globais para drag
+        document.addEventListener('mousemove', (e) => {
+            if (draggedElement) {
+                const container = document.querySelector('.container');
+                const containerRect = container.getBoundingClientRect();
+                
+                const newX = e.clientX - containerRect.left - offsetX;
+                const newY = e.clientY - containerRect.top - offsetY;
+                
+                draggedElement.style.left = newX + 'px';
+                draggedElement.style.top = newY + 'px';
+                
+                // Redesenhar conexões em tempo real
+                redrawConnections();
+            }
+        });
+
+        document.addEventListener('mouseup', () => {
+            if (draggedElement) {
+                draggedElement.style.opacity = '1';
+                draggedElement.style.zIndex = 'auto';
+                draggedElement = null;
+            }
+        });
+
+        // Tornar notas também arrastáveis
+        document.querySelectorAll('.note').forEach(note => {
+            note.style.cursor = 'move';
+            
+            note.addEventListener('mousedown', (e) => {
+                draggedElement = note;
+                const rect = note.getBoundingClientRect();
+                offsetX = e.clientX - rect.left;
+                offsetY = e.clientY - rect.top;
+                
+                note.style.opacity = '0.8';
+                note.style.zIndex = '1001';
+                
+                e.preventDefault();
+            });
+        });
+
+        // Desenhar conexões iniciais
+        setTimeout(() => {
+            redrawConnections();
+        }, 100);
+
+        // Adicionar dica visual
+        const hint = document.createElement('div');
+        hint.style.cssText = `
+            position: absolute;
+            top: 10px;
+            right: 20px;
+            background: #555;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #ccc;
+        `;
+        hint.textContent = '💡 Arraste os cards pelos headers para reorganizar';
+        document.querySelector('.container').appendChild(hint);
+    </script>
+</body>
+</html>
