@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import ActionButton from './ActionButton';
 import EmptyState from './EmptyState';
 import { fetchTasks as apiFetchTasks, fetchFaturas as apiFetchFaturas, fetchLogs as apiFetchLogs, startImport as apiStartImport } from '../services/api';
+import FaturaUpload from './FaturaUpload';
 
 const FaturaImport = ({ customerId }) => {
   const [tasks, setTasks] = useState([]);
@@ -52,6 +53,10 @@ const FaturaImport = ({ customerId }) => {
     } catch (error) {
       console.error('Erro ao buscar logs:', error);
     }
+  };
+
+  const handleUploadSuccess = () => {
+    fetchFaturas();
   };
 
   useEffect(() => {
@@ -163,11 +168,16 @@ const FaturaImport = ({ customerId }) => {
   const renderFaturas = () => {
     if (faturas.length === 0) {
       return (
-        <EmptyState
-          icon="file-invoice-dollar"
-          title="Nenhuma fatura baixada"
-          description="As faturas aparecerão aqui após a importação"
-        />
+        <div>
+          <div className="mb-8">
+            <FaturaUpload clienteId={customerId} onUploadSuccess={handleUploadSuccess} />
+          </div>
+          <EmptyState
+            icon="file-invoice-dollar"
+            title="Nenhuma fatura baixada"
+            description="As faturas aparecerão aqui após a importação ou envio manual."
+          />
+        </div>
       );
     }
 
@@ -182,39 +192,44 @@ const FaturaImport = ({ customerId }) => {
     }, {});
 
     return (
-      <div className="space-y-6">
-        {Object.entries(faturasByUC).map(([ucCodigo, ucFaturas]) => (
-          <div key={ucCodigo} className="bg-white p-6 rounded-lg border border-gray-200">
-            <h4 className="font-medium text-gray-900 mb-4">
-              UC: {ucCodigo}
-            </h4>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {ucFaturas.map((fatura) => (
-                <div key={fatura.id} className="bg-gray-50 p-4 rounded-lg hover:bg-gray-100 transition-colors">
-                  <div className="flex items-center justify-between mb-2">
-                    <span className="font-medium text-gray-900">
-                      {fatura.mes_referencia}
-                    </span>
-                    <i className="fas fa-file-pdf text-red-500"></i>
+      <div>
+        <div className="mb-8">
+          <FaturaUpload clienteId={customerId} onUploadSuccess={handleUploadSuccess} />
+        </div>
+        <div className="space-y-6">
+          {Object.entries(faturasByUC).map(([ucCodigo, ucFaturas]) => (
+            <div key={ucCodigo} className="bg-white p-6 rounded-lg border border-gray-200">
+              <h4 className="font-medium text-gray-900 mb-4">
+                UC: {ucCodigo}
+              </h4>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {ucFaturas.map((fatura) => (
+                  <div key={fatura.id} className="bg-gray-50 p-4 rounded-lg hover:bg-gray-100 transition-colors">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="font-medium text-gray-900">
+                        {fatura.mes_referencia}
+                      </span>
+                      <i className="fas fa-file-pdf text-red-500"></i>
+                    </div>
+                    <div className="text-sm text-gray-600">
+                      <p>Baixada em: {new Date(fatura.downloaded_at).toLocaleDateString('pt-BR')}</p>
+                      {fatura.valor && <p>Valor: R$ {fatura.valor}</p>}
+                    </div>
+                    <a
+                      href={fatura.arquivo_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-3 inline-flex items-center text-sm text-indigo-600 hover:text-indigo-800"
+                    >
+                      <i className="fas fa-download mr-1"></i>
+                      Baixar PDF
+                    </a>
                   </div>
-                  <div className="text-sm text-gray-600">
-                    <p>Baixada em: {new Date(fatura.downloaded_at).toLocaleDateString('pt-BR')}</p>
-                    {fatura.valor && <p>Valor: R$ {fatura.valor}</p>}
-                  </div>
-                  <a
-                    href={fatura.arquivo_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="mt-3 inline-flex items-center text-sm text-indigo-600 hover:text-indigo-800"
-                  >
-                    <i className="fas fa-download mr-1"></i>
-                    Baixar PDF
-                  </a>
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
-        ))}
+          ))}
+        </div>
       </div>
     );
   };
