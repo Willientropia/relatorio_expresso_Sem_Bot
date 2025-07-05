@@ -1,4 +1,5 @@
 # backend/api/views.py
+import sys
 from rest_framework import status, generics, permissions
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -7,6 +8,11 @@ from rest_framework import serializers
 from django.utils import timezone
 from django.db import transaction
 import threading
+import subprocess
+import tempfile
+import json
+import os
+from django.conf import settings
 
 # Imports para autenticação
 from django.contrib.auth.models import User
@@ -271,3 +277,328 @@ def start_fatura_import(request, customer_id):
         return Response({"message": "Importação de faturas iniciada com sucesso."}, status=status.HTTP_200_OK)
     except Customer.DoesNotExist:
         return Response({"error": "Cliente não encontrado."}, status=status.HTTP_404_NOT_FOUND)
+
+
+# backend/api/views.py - Adicione esta view
+
+@api_view(['POST'])
+def upload_faturas(request, customer_id):
+    """Processa upload manual de faturas com dados extraídos"""
+    try:
+        customer = Customer.objects.get(pk=customer_id, user=request.user)
+        
+        if not request.FILES.getlist('faturas'):
+            return Response(
+                {"error": "Nenhum arquivo enviado"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        faturas_processadas = []
+        faturas_com_erro = []
+        
+        for arquivo in request.FILES.getlist('faturas'):
+            # Validar tipo de arquivo
+            if not arquivo.name.lower().endswith('.pdf'):
+                faturas_com_erro.append({
+                    "arquivo": arquivo.name,
+                    "erro": "Apenas arquivos PDF são aceitos"
+                })
+                continue
+            
+            # Aqui você pode integrar com seu script de extração real
+            # Por enquanto, vamos criar uma fatura básica
+            try:
+                # Buscar UC correspondente (você pode implementar lógica mais sofisticada)
+                uc = customer.unidades_consumidoras.filter(is_active=True).first()
+                
+                if not uc:
+                    faturas_com_erro.append({
+                        "arquivo": arquivo.name,
+                        "erro": "Cliente não possui UC ativa"
+                    })
+                    continue
+                
+                # Criar fatura (usar dados do frontend se enviados)
+                fatura_data = {
+                    'unidade_consumidora': uc,
+                    'mes_referencia': timezone.now().date().replace(day=1),  # Primeiro dia do mês atual
+                    'arquivo': arquivo,
+                }
+                
+                # Se dados específicos foram enviados no request, usar eles
+                if hasattr(request, 'data'):
+                    if request.data.get('mes_referencia'):
+                        fatura_data['mes_referencia'] = request.data['mes_referencia']
+                    if request.data.get('valor_total'):
+                        fatura_data['valor'] = request.data['valor_total']
+                    if request.data.get('data_vencimento'):
+                        fatura_data['vencimento'] = request.data['data_vencimento']
+                
+                fatura = Fatura.objects.create(**fatura_data)
+                
+                faturas_processadas.append({
+                    "id": fatura.id,
+                    "arquivo": arquivo.name,
+                    "uc": uc.codigo,
+                    "mes_referencia": fatura.mes_referencia,
+                })
+                
+            except Exception as e:
+                faturas_com_erro.append({
+                    "arquivo": arquivo.name,
+                    "erro": str(e)
+                })
+        
+        return Response({
+            "message": f"{len(faturas_processadas)} fatura(s) processada(s) com sucesso",
+            "faturas_processadas": faturas_processadas,
+            "faturas_com_erro": faturas_com_erro,
+            "total_enviadas": len(request.FILES.getlist('faturas'))
+        }, status=status.HTTP_201_CREATED)
+        
+    except Customer.DoesNotExist:
+        return Response(
+            {"error": "Cliente não encontrado"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Erro interno: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    
+
+
+@api_view(['POST'])
+def extract_fatura_data(request):
+    """Extrai dados de uma fatura PDF usando script Python"""
+    if 'fatura' not in request.FILES:
+        return Response(
+            {"error": "Nenhum arquivo enviado"}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    arquivo = request.FILES['fatura']
+    
+    # Validar tipo de arquivo
+    if not arquivo.name.lower().endswith('.pdf'):
+        return Response(
+            {"error": "Apenas arquivos PDF são aceitos"}, 
+            status=status.HTTP_400_BAD_REQUEST
+        )
+    
+    try:
+        # Criar arquivo temporário
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+            for chunk in arquivo.chunks():
+                temp_file.write(chunk)
+            temp_pdf_path = temp_file.name
+        
+        # Caminho para o script de extração
+        script_path = os.path.join(settings.BASE_DIR, 'scripts', 'extract_fatura_data.py')
+        
+        # Executar script Python
+        result = subprocess.run(
+            [sys.executable, script_path, temp_pdf_path],
+            capture_output=True,
+            text=True,
+            timeout=30  # Timeout de 30 segundos
+        )
+        
+        # Limpar arquivo temporário
+        os.unlink(temp_pdf_path)
+        
+        if result.returncode == 0:
+            # Parse do resultado JSON
+            extracted_data = json.loads(result.stdout)
+            
+            if extracted_data.get('status') == 'error':
+                return Response(
+                    {"error": f"Erro na extração: {extracted_data.get('erro')}"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            
+            # Formatar dados para o frontend
+            formatted_data = {
+                'numero': extracted_data.get('arquivo_processado', ''),
+                'unidade_consumidora': extracted_data.get('unidade_consumidora', ''),
+                'fornecedor': 'Equatorial Energia Goiás',
+                'cnpj': extracted_data.get('cpf_cnpj', ''),
+                'data_emissao': None,  # Você pode extrair isso se necessário
+                'data_vencimento': extracted_data.get('data_vencimento', ''),
+                'valor_total': extracted_data.get('valor_total', ''),
+                'consumo_kwh': extracted_data.get('consumo_kwh', ''),
+                'mes_referencia': extracted_data.get('mes_referencia', ''),
+                'distribuidora': 'Equatorial Energia',
+                'nome_cliente': extracted_data.get('nome_cliente', ''),
+                'endereco_cliente': extracted_data.get('endereco_cliente', ''),
+                'saldo_kwh': extracted_data.get('saldo_kwh', ''),
+                'energia_injetada': extracted_data.get('energia_injetada', ''),
+                'consumo_scee': extracted_data.get('consumo_scee', ''),
+                # Adicionar outros campos conforme necessário
+                'dados_completos': extracted_data  # Manter dados originais para debug
+            }
+            
+            return Response(formatted_data, status=status.HTTP_200_OK)
+            
+        else:
+            return Response(
+                {"error": f"Erro ao executar script: {result.stderr}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+            
+    except subprocess.TimeoutExpired:
+        return Response(
+            {"error": "Timeout na extração de dados"}, 
+            status=status.HTTP_408_REQUEST_TIMEOUT
+        )
+    except json.JSONDecodeError:
+        return Response(
+            {"error": "Erro ao processar resultado da extração"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Erro interno: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+def upload_faturas_with_extraction(request, customer_id):
+    """Upload de faturas com extração automática de dados"""
+    try:
+        customer = Customer.objects.get(pk=customer_id, user=request.user)
+        
+        if not request.FILES.getlist('faturas'):
+            return Response(
+                {"error": "Nenhum arquivo enviado"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        faturas_processadas = []
+        faturas_com_erro = []
+        
+        for arquivo in request.FILES.getlist('faturas'):
+            if not arquivo.name.lower().endswith('.pdf'):
+                faturas_com_erro.append({
+                    "arquivo": arquivo.name,
+                    "erro": "Apenas arquivos PDF são aceitos"
+                })
+                continue
+            
+            try:
+                # Extrair dados usando o script
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
+                    for chunk in arquivo.chunks():
+                        temp_file.write(chunk)
+                    temp_pdf_path = temp_file.name
+                
+                script_path = os.path.join(settings.BASE_DIR, 'scripts', 'extract_fatura_data.py')
+                result = subprocess.run(
+                    [sys.executable, script_path, temp_pdf_path],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                os.unlink(temp_pdf_path)
+                
+                if result.returncode == 0:
+                    extracted_data = json.loads(result.stdout)
+                    
+                    if extracted_data.get('status') == 'error':
+                        faturas_com_erro.append({
+                            "arquivo": arquivo.name,
+                            "erro": extracted_data.get('erro', 'Erro na extração')
+                        })
+                        continue
+                    
+                    # Buscar UC correspondente
+                    uc_codigo = extracted_data.get('unidade_consumidora')
+                    uc = None
+                    
+                    if uc_codigo:
+                        uc = customer.unidades_consumidoras.filter(codigo=uc_codigo).first()
+                    
+                    if not uc:
+                        uc = customer.unidades_consumidoras.filter(is_active=True).first()
+                    
+                    if not uc:
+                        faturas_com_erro.append({
+                            "arquivo": arquivo.name,
+                            "erro": "Cliente não possui UC ativa ou correspondente"
+                        })
+                        continue
+                    
+                    # Processar data de vencimento
+                    data_vencimento = None
+                    if extracted_data.get('data_vencimento'):
+                        try:
+                            from datetime import datetime
+                            data_vencimento = datetime.strptime(
+                                extracted_data['data_vencimento'], 
+                                '%d/%m/%Y'
+                            ).date()
+                        except:
+                            pass
+                    
+                    # Processar mês de referência
+                    mes_referencia = timezone.now().date().replace(day=1)
+                    if extracted_data.get('mes_referencia'):
+                        try:
+                            from datetime import datetime
+                            # Formato: JAN/2024
+                            mes_ano = extracted_data['mes_referencia']
+                            # Converter para data
+                            mes_referencia = datetime.strptime(f"01/{mes_ano}", '%d/%b/%Y').date()
+                        except:
+                            pass
+                    
+                    # Criar fatura
+                    fatura = Fatura.objects.create(
+                        unidade_consumidora=uc,
+                        mes_referencia=mes_referencia,
+                        arquivo=arquivo,
+                        valor=extracted_data.get('valor_total'),
+                        vencimento=data_vencimento,
+                        downloaded_at=timezone.now()
+                    )
+                    
+                    faturas_processadas.append({
+                        "id": fatura.id,
+                        "arquivo": arquivo.name,
+                        "uc": uc.codigo,
+                        "mes_referencia": fatura.mes_referencia,
+                        "valor": fatura.valor,
+                        "dados_extraidos": extracted_data
+                    })
+                    
+                else:
+                    faturas_com_erro.append({
+                        "arquivo": arquivo.name,
+                        "erro": f"Erro na extração: {result.stderr}"
+                    })
+                    
+            except Exception as e:
+                faturas_com_erro.append({
+                    "arquivo": arquivo.name,
+                    "erro": str(e)
+                })
+        
+        return Response({
+            "message": f"{len(faturas_processadas)} fatura(s) processada(s) com sucesso",
+            "faturas_processadas": faturas_processadas,
+            "faturas_com_erro": faturas_com_erro,
+            "total_enviadas": len(request.FILES.getlist('faturas'))
+        }, status=status.HTTP_201_CREATED)
+        
+    except Customer.DoesNotExist:
+        return Response(
+            {"error": "Cliente não encontrado"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Erro interno: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )

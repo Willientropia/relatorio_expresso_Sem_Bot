@@ -20,4 +20,14 @@ urlpatterns = [
     path('customers/<int:customer_id>/faturas/tasks/', views.get_fatura_tasks, name='get_fatura_tasks'),
     path('customers/<int:customer_id>/faturas/', views.get_faturas, name='get_faturas'),
     path('customers/<int:customer_id>/faturas/import/', views.start_fatura_import, name='start_fatura_import'),
+
+    # Nova rota para upload manual de faturas
+    path('customers/<int:customer_id>/faturas/upload/', views.upload_faturas, name='upload_faturas'),
+    
+     # Extração de dados de fatura
+    path('extract-fatura-data/', views.extract_fatura_data, name='extract_fatura_data'),
+    
+    # Upload com extração automática
+    path('customers/<int:customer_id>/faturas/upload-with-extraction/', 
+         views.upload_faturas_with_extraction, name='upload_faturas_with_extraction'),
 ]
