@@ -4,22 +4,21 @@ import { apiClient } from '../services/api';
 
 // Função de extração real integrada com o backend
 const extractInvoiceData = async (file) => {
-  // Simula processamento assíncrono
-  await new Promise(resolve => setTimeout(resolve, 1500));
-  
-  // Dados simulados extraídos da fatura
-  return {
-    numero: `INV-${Math.floor(Math.random() * 10000)}`,
-    fornecedor: 'Equatorial Energia Goiás',
-    cnpj: '12.345.678/0001-90',
-    dataEmissao: new Date().toISOString().split('T')[0],
-    dataVencimento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-    valorTotal: (Math.random() * 1000 + 50).toFixed(2),
-    consumoKwh: Math.floor(Math.random() * 300 + 50),
-    unidadeConsumidora: `UC${Math.floor(Math.random() * 10000)}`,
-    mesReferencia: new Date().toISOString().substr(0, 7), // YYYY-MM
-    distribuidora: 'Equatorial Energia'
-  };
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const response = await api.post('/faturas/extract_data/', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
+    });
+    return response.data;
+  } catch (error) {
+    console.error('Erro ao extrair dados da fatura:', error);
+    // Retorna um objeto de erro ou lança o erro para ser tratado pelo chamador
+    throw error;
+  }
 };
 
 const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
@@ -258,17 +257,17 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         {/* Tabs */}
         <div className="flex border-b bg-gray-50 overflow-x-auto">
           {documents.map((doc, index) => (
-            <button
+            <div
               key={doc.id}
-              onClick={() => setActiveTab(index)}
-              className={`flex items-center px-4 py-2 text-sm font-medium whitespace-nowrap ${
+              className={`flex items-center px-4 py-2 text-sm font-medium whitespace-nowrap cursor-pointer ${
                 activeTab === index
                   ? 'border-b-2 border-blue-500 text-blue-600 bg-white'
                   : 'text-gray-600 hover:text-gray-800'
               }`}
+              onClick={() => setActiveTab(index)}
             >
               <FaFilePdf className="h-4 w-4 mr-2 text-red-500" />
-              {doc.fileName}
+              <span>{doc.fileName}</span>
               {doc.status === 'error' && (
                 <div className="h-2 w-2 bg-red-500 rounded-full ml-2"></div>
               )}
@@ -277,11 +276,11 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                   e.stopPropagation();
                   removeDocument(doc.id);
                 }}
-                className="ml-2 text-gray-400 hover:text-red-500"
+                className="ml-2 text-gray-400 hover:text-red-500 p-1"
               >
-                <FaTimes className="h-4 w-4" />
+                <FaTimes className="h-3 w-3" />
               </button>
-            </button>
+            </div>
           ))}
         </div>
 
@@ -298,7 +297,7 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                 <p className="text-red-600">{currentDoc.error}</p>
               </div>
             ) : (
-              <div className="space-y-4">
+              <div className="space-y-6">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-semibold text-gray-800">
                     Dados da Fatura
@@ -306,113 +305,299 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                   <FaEdit className="h-5 w-5 text-gray-400" />
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Número da Fatura
-                    </label>
-                    <input
-                      type="text"
-                      value={currentDoc?.modifiedData?.numero || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'numero', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                {/* Seção: Informações Básicas */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-3">📄 Informações Básicas</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Número da Fatura
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.numero || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'numero', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Unidade Consumidora
-                    </label>
-                    <input
-                      type="text"
-                      value={currentDoc?.modifiedData?.unidadeConsumidora || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'unidadeConsumidora', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Unidade Consumidora
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.unidade_consumidora || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'unidade_consumidora', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Mês de Referência
-                    </label>
-                    <input
-                      type="month"
-                      value={currentDoc?.modifiedData?.mesReferencia || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'mesReferencia', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Mês de Referência
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="JAN/2024"
+                        value={currentDoc?.modifiedData?.mes_referencia || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'mes_referencia', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Data de Emissão
-                    </label>
-                    <input
-                      type="date"
-                      value={currentDoc?.modifiedData?.dataEmissao || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'dataEmissao', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Data de Vencimento
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="DD/MM/AAAA"
+                        value={currentDoc?.modifiedData?.data_vencimento || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'data_vencimento', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <div className="col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Distribuidora
-                    </label>
-                    <input
-                      type="text"
-                      value={currentDoc?.modifiedData?.distribuidora || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'distribuidora', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                {/* Seção: Valores Financeiros */}
+                <div className="bg-green-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-3">💰 Valores Financeiros</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Valor Total (R$)
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.valor_total || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'valor_total', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Contribuição Iluminação Pública
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.contribuicao_iluminacao || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'contribuicao_iluminacao', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      CNPJ
-                    </label>
-                    <input
-                      type="text"
-                      value={currentDoc?.modifiedData?.cnpj || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'cnpj', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                {/* Seção: Consumo de Energia */}
+                <div className="bg-blue-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-3">⚡ Consumo de Energia</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Consumo Total (kWh)
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.consumo_kwh || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'consumo_kwh', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Saldo de Energia (kWh)
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.saldo_kwh || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'saldo_kwh', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Consumo Não Compensado (kWh)
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.consumo_nao_compensado || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'consumo_nao_compensado', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Preço kWh Não Compensado
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.preco_kwh_nao_compensado || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'preco_kwh_nao_compensado', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Data de Vencimento
-                    </label>
-                    <input
-                      type="date"
-                      value={currentDoc?.modifiedData?.dataVencimento || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'dataVencimento', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                {/* Seção: Energia Solar (SCEE) */}
+                <div className="bg-yellow-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-3">☀️ Energia Solar (SCEE)</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Energia Injetada (kWh)
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.energia_injetada || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'energia_injetada', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Preço Energia Injetada
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.preco_energia_injetada || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'preco_energia_injetada', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Consumo SCEE (kWh)
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.consumo_scee || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'consumo_scee', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Preço Energia Compensada
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.preco_energia_compensada || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'preco_energia_compensada', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Valor Total (R$)
-                    </label>
-                    <input
-                      type="text"
-                      value={currentDoc?.modifiedData?.valorTotal || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'valorTotal', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                {/* Seção: Informações do Cliente */}
+                <div className="bg-purple-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-3">👤 Informações do Cliente</h4>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nome do Cliente
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.nome_cliente || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'nome_cliente', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        CPF/CNPJ
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.cnpj || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'cnpj', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Endereço do Cliente
+                      </label>
+                      <textarea
+                        rows={2}
+                        value={currentDoc?.modifiedData?.endereco_cliente || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'endereco_cliente', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
+                </div>
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Consumo (kWh)
-                    </label>
-                    <input
-                      type="number"
-                      value={currentDoc?.modifiedData?.consumoKwh || ''}
-                      onChange={(e) => updateDocumentData(currentDoc.id, 'consumoKwh', e.target.value)}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                {/* Seção: Informações de Leitura */}
+                <div className="bg-gray-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-3">📊 Informações de Leitura</h4>
+                  <div className="grid grid-cols-3 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Leitura Anterior
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.leitura_anterior || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'leitura_anterior', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Leitura Atual
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.leitura_atual || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'leitura_atual', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Dias de Consumo
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.quantidade_dias || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'quantidade_dias', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Seção: Distribuidora */}
+                <div className="bg-indigo-50 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-3">🏢 Distribuidora</h4>
+                  <div className="grid grid-cols-1 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">
+                        Nome da Distribuidora
+                      </label>
+                      <input
+                        type="text"
+                        value={currentDoc?.modifiedData?.distribuidora || 'Equatorial Energia'}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'distribuidora', e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
                   </div>
                 </div>
               </div>

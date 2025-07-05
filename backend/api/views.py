@@ -22,8 +22,11 @@ from django.utils.encoding import force_bytes, force_str
 from django.contrib.auth.tokens import default_token_generator
 from django.core.mail import send_mail
 from django.urls import reverse
-from .serializers import UserSerializer, MyTokenObtainPairSerializer
-from django.http import HttpResponseRedirect
+from .serializers import FaturaLogSerializer, FaturaSerializer, FaturaTaskSerializer, UserSerializer, MyTokenObtainPairSerializer
+from django.http import HttpResponseRedirect, JsonResponse
+
+# Imports para extração de dados de fatura
+from scripts.extract_fatura_data import process_single_pdf
 
 # --- Views de Autenticação ---
 
@@ -92,7 +95,7 @@ class LoginView(TokenObtainPairView):
     authentication_classes = []  # No authentication required for login
     serializer_class = MyTokenObtainPairSerializer
 
-# --- Views existentes ---
+# --- Views de Clientes e UCs ---
 
 class CustomerSerializer(serializers.ModelSerializer):
     data_nascimento = serializers.DateField(format='%Y-%m-%d', input_formats=['%Y-%m-%d', '%d/%m/%Y'])
@@ -242,28 +245,59 @@ class FaturaTaskSerializer(serializers.ModelSerializer):
                   'status', 'created_at', 'completed_at', 'error_message']
 
 
+# backend/api/views.py - Adicione no início das views problemáticas:
+
 @api_view(['GET'])
 def get_fatura_tasks(request, customer_id):
     """Retorna o status das tarefas de importação"""
+    print(f"DEBUG: Buscando tasks para customer_id={customer_id}, user={request.user}")
+    
     try:
-        customer = Customer.objects.get(pk=customer_id)
-        tasks = FaturaTask.objects.filter(unidade_consumidora__customer=customer).order_by('-created_at')[:10]
+        customer = Customer.objects.get(pk=customer_id, user=request.user)
+        print(f"DEBUG: Customer encontrado: {customer.nome}")
+        
+        tasks = FaturaTask.objects.filter(
+            unidade_consumidora__customer=customer
+        ).order_by('-created_at')[:10]
+        
+        print(f"DEBUG: Encontradas {tasks.count()} tasks")
+        
         serializer = FaturaTaskSerializer(tasks, many=True)
         return Response(serializer.data)
+        
     except Customer.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
+        print(f"DEBUG: Customer {customer_id} não encontrado para user {request.user}")
+        return Response({"error": "Cliente não encontrado"}, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        print(f"DEBUG: Erro inesperado: {str(e)}")
+        return Response({"error": f"Erro interno: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 @api_view(['GET'])
 def get_faturas(request, customer_id):
     """Retorna as faturas baixadas do cliente"""
     try:
-        customer = Customer.objects.get(pk=customer_id)
-        faturas = Fatura.objects.filter(unidade_consumidora__customer=customer).order_by('-mes_referencia')
+        # Verificar se o customer existe e pertence ao usuário logado
+        customer = Customer.objects.get(pk=customer_id, user=request.user)
+        
+        # Buscar faturas relacionadas às UCs deste customer
+        faturas = Fatura.objects.filter(
+            unidade_consumidora__customer=customer
+        ).order_by('-mes_referencia')
+        
         serializer = FaturaSerializer(faturas, many=True, context={'request': request})
         return Response(serializer.data)
+        
     except Customer.DoesNotExist:
-        return Response(status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {"error": "Cliente não encontrado"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Erro interno: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
     
 
 @api_view(['POST'])
@@ -591,6 +625,55 @@ def upload_faturas_with_extraction(request, customer_id):
             "faturas_com_erro": faturas_com_erro,
             "total_enviadas": len(request.FILES.getlist('faturas'))
         }, status=status.HTTP_201_CREATED)
+        
+    except Customer.DoesNotExist:
+        return Response(
+            {"error": "Cliente não encontrado"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Erro interno: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+@api_view(['POST'])
+def extract_fatura_data_view(request):
+    if 'file' not in request.FILES:
+        return JsonResponse({'error': 'Nenhum arquivo enviado'}, status=400)
+
+    pdf_file = request.FILES['file']
+
+    # Salvar o arquivo temporariamente
+    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
+        for chunk in pdf_file.chunks():
+            temp_pdf.write(chunk)
+        temp_pdf_path = temp_pdf.name
+
+    try:
+        # Chamar a função de extração
+        extracted_data = process_single_pdf(temp_pdf_path)
+        return JsonResponse(extracted_data)
+    except Exception as e:
+        return JsonResponse({'error': str(e)}, status=500)
+    finally:
+        # Remover o arquivo temporário
+        if os.path.exists(temp_pdf_path):
+            os.remove(temp_pdf_path)
+
+@api_view(['GET'])
+def get_fatura_logs(request, customer_id):
+    """Retorna o histórico de faturas (logs) do cliente"""
+    try:
+        customer = Customer.objects.get(pk=customer_id, user=request.user)
+        
+        # Buscar logs de faturas (tasks de importação)
+        logs = FaturaTask.objects.filter(
+            unidade_consumidora__customer=customer
+        ).order_by('-created_at')
+        
+        serializer = FaturaTaskSerializer(logs, many=True)
+        return Response(serializer.data)
         
     except Customer.DoesNotExist:
         return Response(

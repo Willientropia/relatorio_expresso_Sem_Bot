@@ -17,9 +17,9 @@ urlpatterns = [
     path('customers/<int:customer_id>/ucs/<int:uc_id>/toggle/', views.uc_toggle_status, name='uc_toggle_status'),
     
     # Novas rotas para faturas
-    path('customers/<int:customer_id>/faturas/tasks/', views.get_fatura_tasks, name='get_fatura_tasks'),
     path('customers/<int:customer_id>/faturas/', views.get_faturas, name='get_faturas'),
     path('customers/<int:customer_id>/faturas/import/', views.start_fatura_import, name='start_fatura_import'),
+    path('customers/<int:customer_id>/faturas/tasks/', views.get_fatura_tasks, name='get_fatura_tasks'),
 
     # Nova rota para upload manual de faturas
     path('customers/<int:customer_id>/faturas/upload/', views.upload_faturas, name='upload_faturas'),
@@ -30,4 +30,8 @@ urlpatterns = [
     # Upload com extração automática
     path('customers/<int:customer_id>/faturas/upload-with-extraction/', 
          views.upload_faturas_with_extraction, name='upload_faturas_with_extraction'),
+
+    # Novas rotas para logs de faturas e extração de dados
+    path('customers/<int:customer_id>/faturas/logs/', views.get_fatura_logs, name='get_fatura_logs'),
+    path('faturas/extract_data/', views.extract_fatura_data_view, name='extract_fatura_data_view'),
 ]

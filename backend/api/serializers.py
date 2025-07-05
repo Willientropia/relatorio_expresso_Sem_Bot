@@ -2,6 +2,22 @@ from django.contrib.auth.models import User
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from .models import Customer, Fatura, FaturaTask, UnidadeConsumidora, FaturaLog
+
+class FaturaLogSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FaturaLog
+        fields = '__all__'
+
+class FaturaSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Fatura
+        fields = '__all__'
+
+class FaturaTaskSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = FaturaTask
+        fields = '__all__'
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:

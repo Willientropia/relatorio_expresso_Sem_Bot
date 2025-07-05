@@ -13,7 +13,8 @@ const FaturaImport = ({ customerId }) => {
   const [importing, setImporting] = useState(false);
   const [activeTab, setActiveTab] = useState('faturas');
 
-  // Busca tarefas em andamento
+  // frontend/src/components/FaturaImport.jsx - Substitua as funções fetchTasks e fetchFaturas:
+
   const fetchTasks = async () => {
     try {
       const response = await apiFetchTasks(customerId);
@@ -28,10 +29,15 @@ const FaturaImport = ({ customerId }) => {
       }
     } catch (error) {
       console.error('Erro ao buscar tarefas:', error);
+      // Se for erro 500, mostrar mensagem mais específica
+      if (error.response?.status === 500) {
+        console.error('Erro no servidor ao buscar tarefas');
+      }
+      // Não bloquear a interface, apenas logar o erro
+      setTasks([]);
     }
   };
 
-  // Busca faturas baixadas
   const fetchFaturas = async () => {
     try {
       const response = await apiFetchFaturas(customerId);
@@ -40,6 +46,12 @@ const FaturaImport = ({ customerId }) => {
       }
     } catch (error) {
       console.error('Erro ao buscar faturas:', error);
+      // Se for erro 500, mostrar mensagem mais específica
+      if (error.response?.status === 500) {
+        console.error('Erro no servidor ao buscar faturas');
+      }
+      // Não bloquear a interface, apenas logar o erro
+      setFaturas([]);
     }
   };
 

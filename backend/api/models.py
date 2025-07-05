@@ -123,3 +123,12 @@ class FaturaTask(models.Model):
 
     class Meta:
         ordering = ['-created_at']
+
+class FaturaLog(models.Model):
+    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='fatura_logs')
+    timestamp = models.DateTimeField(auto_now_add=True)
+    level = models.CharField(max_length=10, choices=[('INFO', 'Info'), ('WARNING', 'Warning'), ('ERROR', 'Error')])
+    message = models.TextField()
+
+    def __str__(self):
+        return f'[{self.timestamp}] [{self.level}] {self.message}'
