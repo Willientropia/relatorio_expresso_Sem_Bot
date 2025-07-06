@@ -4,6 +4,8 @@ from django.utils import timezone
 from django.utils.text import get_valid_filename
 import os
 from django.contrib.auth.models import User
+import calendar
+from datetime import date
 
 def fatura_upload_path(instance, filename):
     # Extrai o mês e ano da data de referência
@@ -88,16 +90,65 @@ class UnidadeConsumidora(models.Model):
 
 class Fatura(models.Model):
     unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='faturas')
-    mes_referencia = models.DateField()
+    mes_referencia = models.DateField()  # Sempre primeiro dia do mês
     arquivo = models.FileField(upload_to=upload_to)
     valor = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
     vencimento = models.DateField(null=True, blank=True)
     downloaded_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+    task_id = models.CharField(max_length=255, null=True, blank=True)
+    file = models.FileField(upload_to=fatura_upload_path, max_length=500)
+
+    def save(self, *args, **kwargs):
+        """Garante que mes_referencia seja sempre o primeiro dia do mês"""
+        if self.mes_referencia:
+            self.mes_referencia = self.mes_referencia.replace(day=1)
+        super().save(*args, **kwargs)
+
+    @property
+    def mes_referencia_formatado(self):
+        """Retorna o mês de referência no formato 'MM/AAAA'"""
+        if self.mes_referencia:
+            return self.mes_referencia.strftime('%m/%Y')
+        return None
+
+    @property
+    def mes_referencia_texto(self):
+        """Retorna o mês de referência no formato 'JAN/2024'"""
+        if self.mes_referencia:
+            mes_nome = calendar.month_abbr[self.mes_referencia.month].upper()
+            return f"{mes_nome}/{self.mes_referencia.year}"
+        return None
+
+    @property
+    def mes_nome_completo(self):
+        """Retorna o nome completo do mês em português"""
+        if self.mes_referencia:
+            meses = {
+                1: 'Janeiro', 2: 'Fevereiro', 3: 'Março', 4: 'Abril',
+                5: 'Maio', 6: 'Junho', 7: 'Julho', 8: 'Agosto',
+                9: 'Setembro', 10: 'Outubro', 11: 'Novembro', 12: 'Dezembro'
+            }
+            return f"{meses[self.mes_referencia.month]} de {self.mes_referencia.year}"
+        return None
+
+    @classmethod
+    def criar_mes_referencia(cls, mes, ano):
+        """Método auxiliar para criar data de referência"""
+        return date(ano, mes, 1)
+
+    @classmethod
+    def buscar_por_periodo(cls, uc, mes, ano):
+        """Busca fatura por UC e período específico"""
+        mes_referencia = cls.criar_mes_referencia(mes, ano)
+        return cls.objects.filter(
+            unidade_consumidora=uc,
+            mes_referencia=mes_referencia
+        ).first()
 
     def __str__(self):
-        return f"Fatura {self.unidade_consumidora.codigo} - {self.mes_referencia.strftime('%m/%Y')}"
+        return f"Fatura {self.unidade_consumidora.codigo} - {self.mes_referencia_texto}"
 
     class Meta:
         ordering = ['-mes_referencia']
@@ -110,25 +161,22 @@ class FaturaTask(models.Model):
         ('SUCCESS', 'Sucesso'),
         ('FAILURE', 'Falha'),
     ]
-    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='tasks')
+    unidade_consumidora = models.ForeignKey(UnidadeConsumidora, on_delete=models.CASCADE, related_name='fatura_tasks')
     mes_referencia = models.DateField()
     status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='PENDING')
     completed_at = models.DateTimeField(null=True, blank=True)
     error_message = models.TextField(blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
-        return f"Task {self.id} - UC {self.unidade_consumidora.codigo} - {self.mes_referencia.strftime('%m/%Y')} [{self.status}]"
-
-    class Meta:
-        ordering = ['-created_at']
+        return f"Task {self.id} for UC {self.unidade_consumidora.codigo} - {self.status}"
 
 class FaturaLog(models.Model):
-    customer = models.ForeignKey(Customer, on_delete=models.CASCADE, related_name='fatura_logs')
+    """Registra logs de eventos importantes relacionados a faturas."""
+    task = models.ForeignKey(FaturaTask, on_delete=models.CASCADE, related_name='logs', null=True, blank=True)
+    fatura = models.ForeignKey(Fatura, on_delete=models.CASCADE, related_name='logs', null=True, blank=True)
     timestamp = models.DateTimeField(auto_now_add=True)
     level = models.CharField(max_length=10, choices=[('INFO', 'Info'), ('WARNING', 'Warning'), ('ERROR', 'Error')])
     message = models.TextField()
 
     def __str__(self):
-        return f'[{self.timestamp}] [{self.level}] {self.message}'
+        return f"[{self.timestamp}] [{self.level}] {self.message}"

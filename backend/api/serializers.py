@@ -10,9 +10,25 @@ class FaturaLogSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
 class FaturaSerializer(serializers.ModelSerializer):
+    arquivo_url = serializers.SerializerMethodField()
+    unidade_consumidora_codigo = serializers.CharField(source='unidade_consumidora.codigo', read_only=True)
+    mes_referencia_formatado = serializers.ReadOnlyField()
+    mes_referencia_texto = serializers.ReadOnlyField()
+    mes_nome_completo = serializers.ReadOnlyField()
+
     class Meta:
         model = Fatura
-        fields = '__all__'
+        fields = [
+            'id', 'unidade_consumidora', 'unidade_consumidora_codigo', 
+            'mes_referencia', 'mes_referencia_formatado', 'mes_referencia_texto', 
+            'mes_nome_completo', 'arquivo', 'arquivo_url', 'valor', 'vencimento', 
+            'downloaded_at', 'created_at', 'updated_at'
+        ]
+    
+    def get_arquivo_url(self, obj):
+        if obj.arquivo:
+            return obj.arquivo.url
+        return None
 
 class FaturaTaskSerializer(serializers.ModelSerializer):
     class Meta:

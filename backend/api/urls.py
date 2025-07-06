@@ -1,4 +1,5 @@
-# backend/api/urls.py
+# backend/api/urls.py - Adicionar estas rotas
+
 from django.urls import path
 from . import views
 from .views import RegisterView, ConfirmEmailView, LoginView
@@ -16,22 +17,21 @@ urlpatterns = [
     path('customers/<int:customer_id>/ucs/<int:uc_id>/', views.uc_detail, name='uc_detail'),
     path('customers/<int:customer_id>/ucs/<int:uc_id>/toggle/', views.uc_toggle_status, name='uc_toggle_status'),
     
-    # Novas rotas para faturas
+    # Rotas de faturas melhoradas
     path('customers/<int:customer_id>/faturas/', views.get_faturas, name='get_faturas'),
+    path('customers/<int:customer_id>/faturas/por-ano/', views.get_faturas_por_ano, name='get_faturas_por_ano'),
     path('customers/<int:customer_id>/faturas/import/', views.start_fatura_import, name='start_fatura_import'),
     path('customers/<int:customer_id>/faturas/tasks/', views.get_fatura_tasks, name='get_fatura_tasks'),
-
-    # Nova rota para upload manual de faturas
+    path('faturas/<int:fatura_id>/logs/', views.get_fatura_logs, name='get_fatura_logs'),
+    
+    # Upload de faturas
     path('customers/<int:customer_id>/faturas/upload/', views.upload_faturas, name='upload_faturas'),
-    
-     # Extração de dados de fatura
-    path('extract-fatura-data/', views.extract_fatura_data, name='extract_fatura_data'),
-    
-    # Upload com extração automática
     path('customers/<int:customer_id>/faturas/upload-with-extraction/', 
          views.upload_faturas_with_extraction, name='upload_faturas_with_extraction'),
-
-    # Novas rotas para logs de faturas e extração de dados
-    path('customers/<int:customer_id>/faturas/logs/', views.get_fatura_logs, name='get_fatura_logs'),
+    path('customers/<int:customer_id>/faturas/force-upload/', 
+         views.force_upload_fatura, name='force_upload_fatura'),
+    
+    # Extração de dados de fatura
+    path('extract-fatura-data/', views.extract_fatura_data, name='extract_fatura_data'),
     path('faturas/extract_data/', views.extract_fatura_data_view, name='extract_fatura_data_view'),
 ]

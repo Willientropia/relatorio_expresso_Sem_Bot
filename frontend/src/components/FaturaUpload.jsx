@@ -1,25 +1,7 @@
 import React, { useState, useCallback, useRef } from 'react';
 import { FaUpload, FaFilePdf, FaSpinner, FaTimes, FaEdit, FaSave, FaEye } from 'react-icons/fa';
 import { apiClient } from '../services/api';
-
-// Função de extração real integrada com o backend
-const extractInvoiceData = async (file) => {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const response = await api.post('/faturas/extract_data/', formData, {
-      headers: {
-        'Content-Type': 'multipart/form-data',
-      },
-    });
-    return response.data;
-  } catch (error) {
-    console.error('Erro ao extrair dados da fatura:', error);
-    // Retorna um objeto de erro ou lança o erro para ser tratado pelo chamador
-    throw error;
-  }
-};
+import WarningModal from './WarningModal';
 
 const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
   const [documents, setDocuments] = useState([]);
@@ -27,7 +9,31 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [isDragActive, setIsDragActive] = useState(false);
+  const [warningModal, setWarningModal] = useState({
+    isOpen: false,
+    type: null,
+    data: null,
+    pendingUpload: null
+  });
   const fileInputRef = useRef(null);
+
+  // Função de extração integrada com o backend
+  const extractInvoiceData = async (file) => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await apiClient.post('/faturas/extract_data/', formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Erro ao extrair dados da fatura:', error);
+      throw error;
+    }
+  };
 
   const handleFilesDrop = useCallback(async (files) => {
     const fileArray = Array.from(files).filter(file => file.type === 'application/pdf');
@@ -125,6 +131,59 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
     });
   };
 
+  const handleWarningConfirm = async () => {
+    const { pendingUpload } = warningModal;
+    if (!pendingUpload) return;
+
+    setWarningModal(prev => ({ ...prev, isProcessing: true }));
+
+    try {
+      // Usar a API de força upload
+      const formData = new FormData();
+      formData.append('arquivo', pendingUpload.file);
+      formData.append('uc_codigo', pendingUpload.uc_codigo);
+      formData.append('mes_referencia', pendingUpload.mes_referencia);
+      formData.append('dados_extraidos', JSON.stringify(pendingUpload.dados_extraidos));
+
+      const response = await apiClient.post(
+        `/customers/${clienteId}/faturas/force-upload/`,
+        formData,
+        {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        }
+      );
+
+      if (response.status === 201) {
+        // Sucesso - limpar tudo
+        documents.forEach(doc => {
+          if (doc.fileUrl) {
+            URL.revokeObjectURL(doc.fileUrl);
+          }
+        });
+        
+        setDocuments([]);
+        setShowReviewModal(false);
+        setWarningModal({
+          isOpen: false,
+          type: null,
+          data: null,
+          pendingUpload: null
+        });
+        
+        if (onUploadSuccess) {
+          onUploadSuccess();
+        }
+        
+        alert('Fatura enviada com sucesso!');
+      }
+    } catch (error) {
+      console.error('Erro ao forçar upload:', error);
+      alert(error.response?.data?.error || 'Erro ao enviar fatura');
+    } finally {
+      setWarningModal(prev => ({ ...prev, isProcessing: false }));
+    }
+  };
+
   const saveAllDocuments = async () => {
     const validDocuments = documents.filter(doc => doc.status === 'reviewed');
     
@@ -136,7 +195,6 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
     setIsProcessing(true);
     
     try {
-      // Usar a API real de upload com extração
       const formData = new FormData();
       
       validDocuments.forEach(doc => {
@@ -151,7 +209,55 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         }
       );
       
-      // Limpa URLs dos objetos para evitar memory leaks
+      const result = response.data;
+      
+      // Verificar se há avisos
+      if (result.avisos && result.avisos.length > 0) {
+        const primeiroAviso = result.avisos[0];
+        
+        if (primeiroAviso.tipo === 'fatura_duplicada') {
+          // Encontrar documento correspondente
+          const docCorrespondente = validDocuments.find(doc => 
+            doc.fileName === primeiroAviso.arquivo
+          );
+          
+          if (docCorrespondente) {
+            setWarningModal({
+              isOpen: true,
+              type: 'fatura_duplicada',
+              data: primeiroAviso,
+              pendingUpload: {
+                file: docCorrespondente.file,
+                uc_codigo: primeiroAviso.uc_codigo,
+                mes_referencia: primeiroAviso.mes_referencia,
+                dados_extraidos: docCorrespondente.extractedData
+              }
+            });
+          }
+        }
+        
+        setIsProcessing(false);
+        return;
+      }
+      
+      // Verificar se há faturas com avisos de UC outro cliente
+      if (result.faturas_processadas) {
+        const faturaComAviso = result.faturas_processadas.find(f => f.aviso);
+        
+        if (faturaComAviso && faturaComAviso.aviso.tipo === 'uc_outro_cliente') {
+          setWarningModal({
+            isOpen: true,
+            type: 'uc_outro_cliente',
+            data: faturaComAviso.aviso,
+            pendingUpload: null // Neste caso já foi processada
+          });
+          
+          setIsProcessing(false);
+          return;
+        }
+      }
+      
+      // Sucesso sem avisos
       documents.forEach(doc => {
         if (doc.fileUrl) {
           URL.revokeObjectURL(doc.fileUrl);
@@ -165,8 +271,7 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         onUploadSuccess();
       }
       
-      // Mostrar resultado detalhado
-      const result = response.data;
+      // Mostrar resultado
       let message = result.message;
       
       if (result.faturas_com_erro && result.faturas_com_erro.length > 0) {
@@ -234,6 +339,16 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
             </div>
           </div>
         )}
+
+        {/* Modal de Avisos */}
+        <WarningModal
+          isOpen={warningModal.isOpen}
+          onClose={() => setWarningModal(prev => ({ ...prev, isOpen: false }))}
+          onConfirm={handleWarningConfirm}
+          warningType={warningModal.type}
+          warningData={warningModal.data}
+          isProcessing={warningModal.isProcessing}
+        />
       </div>
     );
   }
@@ -311,18 +426,6 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Número da Fatura
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.numero || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'numero', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
                         Unidade Consumidora
                       </label>
                       <input
@@ -358,13 +461,7 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
-                  </div>
-                </div>
 
-                {/* Seção: Valores Financeiros */}
-                <div className="bg-green-50 p-4 rounded-lg">
-                  <h4 className="font-medium text-gray-800 mb-3">💰 Valores Financeiros</h4>
-                  <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
                         Valor Total (R$)
@@ -373,18 +470,6 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                         type="text"
                         value={currentDoc?.modifiedData?.valor_total || ''}
                         onChange={(e) => updateDocumentData(currentDoc.id, 'valor_total', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Contribuição Iluminação Pública
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.contribuicao_iluminacao || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'contribuicao_iluminacao', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -418,30 +503,6 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Consumo Não Compensado (kWh)
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.consumo_nao_compensado || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'consumo_nao_compensado', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Preço kWh Não Compensado
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.preco_kwh_nao_compensado || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'preco_kwh_nao_compensado', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
                   </div>
                 </div>
 
@@ -463,36 +524,12 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Preço Energia Injetada
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.preco_energia_injetada || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'preco_energia_injetada', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
                         Consumo SCEE (kWh)
                       </label>
                       <input
                         type="text"
                         value={currentDoc?.modifiedData?.consumo_scee || ''}
                         onChange={(e) => updateDocumentData(currentDoc.id, 'consumo_scee', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Preço Energia Compensada
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.preco_energia_compensada || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'preco_energia_compensada', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -521,80 +558,8 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
                       </label>
                       <input
                         type="text"
-                        value={currentDoc?.modifiedData?.cnpj || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'cnpj', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Endereço do Cliente
-                      </label>
-                      <textarea
-                        rows={2}
-                        value={currentDoc?.modifiedData?.endereco_cliente || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'endereco_cliente', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Seção: Informações de Leitura */}
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="font-medium text-gray-800 mb-3">📊 Informações de Leitura</h4>
-                  <div className="grid grid-cols-3 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Leitura Anterior
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.leitura_anterior || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'leitura_anterior', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Leitura Atual
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.leitura_atual || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'leitura_atual', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Dias de Consumo
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.quantidade_dias || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'quantidade_dias', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Seção: Distribuidora */}
-                <div className="bg-indigo-50 p-4 rounded-lg">
-                  <h4 className="font-medium text-gray-800 mb-3">🏢 Distribuidora</h4>
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nome da Distribuidora
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.distribuidora || 'Equatorial Energia'}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'distribuidora', e.target.value)}
+                        value={currentDoc?.modifiedData?.cpf_cnpj || ''}
+                        onChange={(e) => updateDocumentData(currentDoc.id, 'cpf_cnpj', e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
@@ -669,6 +634,16 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
           accept=".pdf"
           onChange={handleFileSelect}
           className="hidden"
+        />
+
+        {/* Modal de Avisos */}
+        <WarningModal
+          isOpen={warningModal.isOpen}
+          onClose={() => setWarningModal(prev => ({ ...prev, isOpen: false }))}
+          onConfirm={handleWarningConfirm}
+          warningType={warningModal.type}
+          warningData={warningModal.data}
+          isProcessing={warningModal.isProcessing}
         />
       </div>
     </div>

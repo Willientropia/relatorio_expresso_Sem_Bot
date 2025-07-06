@@ -13,6 +13,9 @@ import tempfile
 import json
 import os
 from django.conf import settings
+from django.db.models import Q
+from datetime import datetime, date
+import calendar
 
 # Imports para autenticação
 from django.contrib.auth.models import User
@@ -27,6 +30,16 @@ from django.http import HttpResponseRedirect, JsonResponse
 
 # Imports para extração de dados de fatura
 from scripts.extract_fatura_data import process_single_pdf
+
+@api_view(['GET'])
+def get_fatura_logs(request, fatura_id):
+    try:
+        fatura = Fatura.objects.get(pk=fatura_id)
+        logs = fatura.logs.all().order_by('-timestamp')
+        serializer = FaturaLogSerializer(logs, many=True)
+        return Response(serializer.data)
+    except Fatura.DoesNotExist:
+        return Response({'error': 'Fatura not found'}, status=status.HTTP_404_NOT_FOUND)
 
 # --- Views de Autenticação ---
 
@@ -499,7 +512,7 @@ def extract_fatura_data(request):
 
 @api_view(['POST'])
 def upload_faturas_with_extraction(request, customer_id):
-    """Upload de faturas com extração automática de dados"""
+    """Upload de faturas com extração automática de dados e validações"""
     try:
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         
@@ -511,6 +524,7 @@ def upload_faturas_with_extraction(request, customer_id):
         
         faturas_processadas = []
         faturas_com_erro = []
+        avisos = []
         
         for arquivo in request.FILES.getlist('faturas'):
             if not arquivo.name.lower().endswith('.pdf'):
@@ -550,8 +564,24 @@ def upload_faturas_with_extraction(request, customer_id):
                     # Buscar UC correspondente
                     uc_codigo = extracted_data.get('unidade_consumidora')
                     uc = None
+                    aviso_uc = None
                     
                     if uc_codigo:
+                        # Verificar se UC existe em outro cliente
+                        uc_outros_clientes = UnidadeConsumidora.objects.filter(
+                            codigo=uc_codigo
+                        ).exclude(customer=customer)
+                        
+                        if uc_outros_clientes.exists():
+                            uc_outro_cliente = uc_outros_clientes.first()
+                            aviso_uc = {
+                                "tipo": "uc_outro_cliente",
+                                "uc_codigo": uc_codigo,
+                                "cliente_nome": uc_outro_cliente.customer.nome,
+                                "cliente_id": uc_outro_cliente.customer.id
+                            }
+                        
+                        # Buscar UC no cliente atual
                         uc = customer.unidades_consumidoras.filter(codigo=uc_codigo).first()
                     
                     if not uc:
@@ -564,27 +594,42 @@ def upload_faturas_with_extraction(request, customer_id):
                         })
                         continue
                     
+                    # Processar mês de referência
+                    mes_referencia = None
+                    if extracted_data.get('mes_referencia'):
+                        try:
+                            # Formato: JAN/2024
+                            mes_ano = extracted_data['mes_referencia']
+                            mes_referencia = datetime.strptime(f"01/{mes_ano}", '%d/%b/%Y').date()
+                        except:
+                            mes_referencia = timezone.now().date().replace(day=1)
+                    else:
+                        mes_referencia = timezone.now().date().replace(day=1)
+                    
+                    # Verificar se fatura já existe
+                    fatura_existente = Fatura.objects.filter(
+                        unidade_consumidora=uc,
+                        mes_referencia=mes_referencia
+                    ).first()
+                    
+                    if fatura_existente:
+                        avisos.append({
+                            "tipo": "fatura_duplicada",
+                            "arquivo": arquivo.name,
+                            "uc_codigo": uc.codigo,
+                            "mes_referencia": mes_referencia.strftime('%m/%Y'),
+                            "fatura_existente_id": fatura_existente.id
+                        })
+                        continue
+                    
                     # Processar data de vencimento
                     data_vencimento = None
                     if extracted_data.get('data_vencimento'):
                         try:
-                            from datetime import datetime
                             data_vencimento = datetime.strptime(
                                 extracted_data['data_vencimento'], 
                                 '%d/%m/%Y'
                             ).date()
-                        except:
-                            pass
-                    
-                    # Processar mês de referência
-                    mes_referencia = timezone.now().date().replace(day=1)
-                    if extracted_data.get('mes_referencia'):
-                        try:
-                            from datetime import datetime
-                            # Formato: JAN/2024
-                            mes_ano = extracted_data['mes_referencia']
-                            # Converter para data
-                            mes_referencia = datetime.strptime(f"01/{mes_ano}", '%d/%b/%Y').date()
                         except:
                             pass
                     
@@ -598,14 +643,19 @@ def upload_faturas_with_extraction(request, customer_id):
                         downloaded_at=timezone.now()
                     )
                     
-                    faturas_processadas.append({
+                    resultado_fatura = {
                         "id": fatura.id,
                         "arquivo": arquivo.name,
                         "uc": uc.codigo,
-                        "mes_referencia": fatura.mes_referencia,
+                        "mes_referencia": mes_referencia,
                         "valor": fatura.valor,
                         "dados_extraidos": extracted_data
-                    })
+                    }
+                    
+                    if aviso_uc:
+                        resultado_fatura["aviso"] = aviso_uc
+                    
+                    faturas_processadas.append(resultado_fatura)
                     
                 else:
                     faturas_com_erro.append({
@@ -623,6 +673,7 @@ def upload_faturas_with_extraction(request, customer_id):
             "message": f"{len(faturas_processadas)} fatura(s) processada(s) com sucesso",
             "faturas_processadas": faturas_processadas,
             "faturas_com_erro": faturas_com_erro,
+            "avisos": avisos,
             "total_enviadas": len(request.FILES.getlist('faturas'))
         }, status=status.HTTP_201_CREATED)
         
@@ -637,43 +688,292 @@ def upload_faturas_with_extraction(request, customer_id):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
+# backend/api/views.py - Substituir a função extract_fatura_data_view
+ 
 @api_view(['POST'])
 def extract_fatura_data_view(request):
-    if 'file' not in request.FILES:
-        return JsonResponse({'error': 'Nenhum arquivo enviado'}, status=400)
+    """Extrai dados de uma fatura PDF - versão corrigida com mapeamento consistente"""
+    
+    # Verificar diferentes nomes de campo
+    file_field_names = ['file', 'fatura', 'pdf', 'document']
+    uploaded_file = None
+    
+    for field_name in file_field_names:
+        if field_name in request.FILES:
+            uploaded_file = request.FILES[field_name]
+            break
+    
+    if not uploaded_file:
+        return JsonResponse({
+            'error': f'Nenhum arquivo enviado. Campos esperados: {", ".join(file_field_names)}'
+        }, status=400)
 
-    pdf_file = request.FILES['file']
-
-    # Salvar o arquivo temporariamente
-    with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_pdf:
-        for chunk in pdf_file.chunks():
-            temp_pdf.write(chunk)
-        temp_pdf_path = temp_pdf.name
+    # Validar tipo de arquivo
+    if not uploaded_file.name.lower().endswith('.pdf'):
+        return JsonResponse({
+            'error': 'Apenas arquivos PDF são aceitos'
+        }, status=400)
 
     try:
-        # Chamar a função de extração
+        import tempfile
+        import uuid
+        
+        # Criar nome único para o arquivo temporário
+        temp_filename = f"fatura_{uuid.uuid4().hex}.pdf"
+        temp_dir = tempfile.gettempdir()
+        temp_pdf_path = os.path.join(temp_dir, temp_filename)
+        
+        # Salvar arquivo temporário
+        with open(temp_pdf_path, 'wb') as temp_file:
+            for chunk in uploaded_file.chunks():
+                temp_file.write(chunk)
+        
+        # Chamar função de extração
+        from scripts.extract_fatura_data import process_single_pdf
         extracted_data = process_single_pdf(temp_pdf_path)
-        return JsonResponse(extracted_data)
-    except Exception as e:
-        return JsonResponse({'error': str(e)}, status=500)
-    finally:
-        # Remover o arquivo temporário
+        
+        # Remover arquivo temporário
         if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
+        
+        # Verificar se houve erro na extração
+        if extracted_data.get('status') == 'error':
+            return JsonResponse({
+                'error': f"Erro na extração: {extracted_data.get('erro', 'Erro desconhecido')}"
+            }, status=400)
+        
+        # ✅ CORREÇÃO: Formatação consistente dos dados
+        formatted_data = {
+            'status': 'success',
+            
+            # Informações básicas
+            'numero': extracted_data.get('arquivo_processado', ''),
+            'arquivo_processado': extracted_data.get('arquivo_processado', ''),
+            'unidade_consumidora': extracted_data.get('unidade_consumidora', ''),
+            'mes_referencia': extracted_data.get('mes_referencia', ''),
+            'data_vencimento': extracted_data.get('data_vencimento', ''),
+            
+            # Valores financeiros
+            'valor_total': extracted_data.get('valor_total', ''),
+            'contribuicao_iluminacao': extracted_data.get('contribuicao_iluminacao', ''),
+            'preco_fio_b': extracted_data.get('preco_fio_b', ''),
+            'preco_adc_bandeira': extracted_data.get('preco_adc_bandeira', ''),
+            
+            # Consumo de energia
+            'consumo_kwh': extracted_data.get('consumo_kwh', ''),
+            'saldo_kwh': extracted_data.get('saldo_kwh', ''),
+            'consumo_nao_compensado': extracted_data.get('consumo_nao_compensado', ''),
+            'preco_kwh_nao_compensado': extracted_data.get('preco_kwh_nao_compensado', ''),
+            
+            # Energia solar (SCEE)
+            'energia_injetada': extracted_data.get('energia_injetada', ''),
+            'preco_energia_injetada': extracted_data.get('preco_energia_injetada', ''),
+            'consumo_scee': extracted_data.get('consumo_scee', ''),
+            'preco_energia_compensada': extracted_data.get('preco_energia_compensada', ''),
+            
+            # Informações do cliente
+            'nome_cliente': extracted_data.get('nome_cliente', ''),
+            'cpf_cnpj': extracted_data.get('cpf_cnpj', ''),
+            'endereco_cliente': extracted_data.get('endereco_cliente', ''),
+            
+            # Informações de leitura
+            'leitura_anterior': extracted_data.get('leitura_anterior', ''),
+            'leitura_atual': extracted_data.get('leitura_atual', ''),
+            'quantidade_dias': extracted_data.get('quantidade_dias', ''),
+            
+            # Geração solar
+            'ciclo_geracao': extracted_data.get('ciclo_geracao', ''),
+            'uc_geradora': extracted_data.get('uc_geradora', ''),
+            'geracao_ultimo_ciclo': extracted_data.get('geracao_ultimo_ciclo', ''),
+            
+            # Distribuidora
+            'distribuidora': extracted_data.get('distribuidora', 'Equatorial Energia'),
+            
+            # Campos de compatibilidade
+            'fornecedor': 'Equatorial Energia Goiás',
+            'cnpj': extracted_data.get('cpf_cnpj', ''),  # Mapeamento para compatibilidade
+            
+            # Dados completos para debug
+            'dados_completos': extracted_data
+        }
+        
+        return JsonResponse(formatted_data, status=200)
+        
+    except Exception as e:
+        # Limpar arquivo temporário em caso de erro
+        if 'temp_pdf_path' in locals() and os.path.exists(temp_pdf_path):
+            try:
+                os.remove(temp_pdf_path)
+            except:
+                pass
+        
+        return JsonResponse({
+            'error': f'Erro interno no servidor: {str(e)}'
+        }, status=500)
+
+# Nova view para buscar faturas organizadas por ano/mês
+# backend/api/views.py - Atualizar a view get_faturas_por_ano
 
 @api_view(['GET'])
-def get_fatura_logs(request, customer_id):
-    """Retorna o histórico de faturas (logs) do cliente"""
+def get_faturas_por_ano(request, customer_id):
+    """Retorna as faturas organizadas por ano e mês em português"""
+    try:
+        customer = Customer.objects.get(pk=customer_id, user=request.user)
+        ano = request.GET.get('ano', datetime.now().year)
+        
+        # Nomes dos meses em português
+        MESES_PT_BR = {
+            1: {'nome': 'Janeiro', 'abrev': 'JAN'},
+            2: {'nome': 'Fevereiro', 'abrev': 'FEV'},
+            3: {'nome': 'Março', 'abrev': 'MAR'},
+            4: {'nome': 'Abril', 'abrev': 'ABR'},
+            5: {'nome': 'Maio', 'abrev': 'MAI'},
+            6: {'nome': 'Junho', 'abrev': 'JUN'},
+            7: {'nome': 'Julho', 'abrev': 'JUL'},
+            8: {'nome': 'Agosto', 'abrev': 'AGO'},
+            9: {'nome': 'Setembro', 'abrev': 'SET'},
+            10: {'nome': 'Outubro', 'abrev': 'OUT'},
+            11: {'nome': 'Novembro', 'abrev': 'NOV'},
+            12: {'nome': 'Dezembro', 'abrev': 'DEZ'},
+        }
+        
+        # Buscar todas as UCs do cliente
+        ucs = customer.unidades_consumidoras.all()
+        
+        # Buscar faturas do ano
+        faturas = Fatura.objects.filter(
+            unidade_consumidora__customer=customer,
+            mes_referencia__year=ano
+        ).order_by('mes_referencia')
+        
+        # Organizar por mês
+        faturas_por_mes = {}
+        for mes in range(1, 13):
+            mes_info = MESES_PT_BR[mes]
+            faturas_por_mes[mes] = {
+                'mes_numero': mes,
+                'mes_nome': mes_info['nome'],
+                'mes_abrev': mes_info['abrev'],
+                'ucs': []
+            }
+            
+            # Para cada UC, verificar se tem fatura neste mês
+            for uc in ucs:
+                fatura_mes = faturas.filter(
+                    unidade_consumidora=uc,
+                    mes_referencia__month=mes
+                ).first()
+                
+                uc_info = {
+                    'uc_id': uc.id,
+                    'uc_codigo': uc.codigo,
+                    'uc_endereco': uc.endereco,
+                    'uc_tipo': uc.tipo,
+                    'uc_is_active': uc.is_active,
+                    'fatura': None
+                }
+                
+                if fatura_mes:
+                    uc_info['fatura'] = {
+                        'id': fatura_mes.id,
+                        'valor': str(fatura_mes.valor) if fatura_mes.valor else None,
+                        'vencimento': fatura_mes.vencimento.strftime('%d/%m/%Y') if fatura_mes.vencimento else None,
+                        'arquivo_url': fatura_mes.arquivo.url if fatura_mes.arquivo else None,
+                        'downloaded_at': fatura_mes.downloaded_at.strftime('%d/%m/%Y') if fatura_mes.downloaded_at else None
+                    }
+                
+                faturas_por_mes[mes]['ucs'].append(uc_info)
+        
+        # Anos disponíveis
+        anos_disponiveis = list(Fatura.objects.filter(
+            unidade_consumidora__customer=customer
+        ).dates('mes_referencia', 'year').values_list('mes_referencia__year', flat=True))
+        
+        anos_disponiveis = sorted(set(anos_disponiveis), reverse=True)
+        if not anos_disponiveis:
+            anos_disponiveis = [datetime.now().year]
+        
+        return Response({
+            'ano_atual': int(ano),
+            'anos_disponiveis': anos_disponiveis,
+            'faturas_por_mes': faturas_por_mes,
+            'total_ucs': ucs.count(),
+            'total_ucs_ativas': ucs.filter(is_active=True).count()
+        })
+        
+    except Customer.DoesNotExist:
+        return Response(
+            {"error": "Cliente não encontrado"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        return Response(
+            {"error": f"Erro interno: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+# View para forçar upload mesmo com avisos
+@api_view(['POST'])
+def force_upload_fatura(request, customer_id):
+    """Força o upload de uma fatura mesmo com avisos"""
     try:
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         
-        # Buscar logs de faturas (tasks de importação)
-        logs = FaturaTask.objects.filter(
-            unidade_consumidora__customer=customer
-        ).order_by('-created_at')
+        # Dados da requisição
+        uc_codigo = request.data.get('uc_codigo')
+        mes_referencia_str = request.data.get('mes_referencia')  # formato: MM/YYYY
+        arquivo = request.FILES.get('arquivo')
+        dados_extraidos = request.data.get('dados_extraidos', {})
         
-        serializer = FaturaTaskSerializer(logs, many=True)
-        return Response(serializer.data)
+        if not all([uc_codigo, mes_referencia_str, arquivo]):
+            return Response(
+                {"error": "Dados incompletos"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Buscar UC
+        uc = customer.unidades_consumidoras.filter(codigo=uc_codigo).first()
+        if not uc:
+            return Response(
+                {"error": "UC não encontrada"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        # Processar mês de referência
+        try:
+            mes, ano = mes_referencia_str.split('/')
+            mes_referencia = date(int(ano), int(mes), 1)
+        except:
+            return Response(
+                {"error": "Formato de data inválido"}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Verificar se já existe e remover
+        Fatura.objects.filter(
+            unidade_consumidora=uc,
+            mes_referencia=mes_referencia
+        ).delete()
+        
+        # Criar nova fatura
+        fatura = Fatura.objects.create(
+            unidade_consumidora=uc,
+            mes_referencia=mes_referencia,
+            arquivo=arquivo,
+            valor=dados_extraidos.get('valor_total'),
+            vencimento=dados_extraidos.get('data_vencimento'),
+            downloaded_at=timezone.now()
+        )
+        
+        return Response({
+            "message": "Fatura enviada com sucesso",
+            "fatura": {
+                "id": fatura.id,
+                "uc": uc.codigo,
+                "mes_referencia": mes_referencia,
+                "valor": fatura.valor
+            }
+        }, status=status.HTTP_201_CREATED)
         
     except Customer.DoesNotExist:
         return Response(
