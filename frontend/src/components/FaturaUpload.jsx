@@ -1,4 +1,6 @@
-import React, { useState, useCallback, useRef } from 'react';
+// frontend/src/components/FaturaUpload.jsx - VERSÃO CORRIGIDA COMPLETA
+
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { FaUpload, FaFilePdf, FaSpinner, FaTimes, FaEdit, FaSave, FaEye } from 'react-icons/fa';
 import { apiClient } from '../services/api';
 import WarningModal from './WarningModal';
@@ -13,9 +15,14 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
     isOpen: false,
     type: null,
     data: null,
-    pendingUpload: null
+    pendingUploads: [] // ✅ CORREÇÃO: Suportar múltiplos avisos
   });
   const fileInputRef = useRef(null);
+
+  // ✅ DEBUG: Monitorar mudanças no warningModal
+  useEffect(() => {
+    console.log('🔍 WarningModal state changed:', warningModal);
+  }, [warningModal]);
 
   // Função de extração integrada com o backend
   const extractInvoiceData = async (file) => {
@@ -131,54 +138,151 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
     });
   };
 
+  // ✅ CORREÇÃO: Função para processar avisos em lote
+  const processarAvisos = (avisos, faturas_processadas) => {
+    console.log('🔍 Processando avisos:', avisos);
+    
+    if (!avisos || avisos.length === 0) {
+      console.log('❌ Nenhum aviso para processar');
+      return null;
+    }
+    
+    // Pegar o primeiro aviso para mostrar no modal
+    const primeiroAviso = avisos[0];
+    console.log('📋 Primeiro aviso:', primeiroAviso);
+    
+    // Encontrar documento correspondente
+    const docCorrespondente = documents.find(doc => 
+      doc.fileName === primeiroAviso.arquivo
+    );
+    
+    console.log('📄 Documento correspondente:', docCorrespondente?.fileName);
+    
+    if (!docCorrespondente) {
+      console.error('❌ Documento correspondente não encontrado para aviso:', primeiroAviso);
+      console.log('📋 Documentos disponíveis:', documents.map(d => d.fileName));
+      return null;
+    }
+    
+    // Preparar dados para o modal baseado no tipo de aviso
+    let warningData = {
+      type: primeiroAviso.tipo,
+      data: primeiroAviso,
+      pendingUploads: avisos.map(aviso => {
+        const doc = documents.find(d => d.fileName === aviso.arquivo);
+        return {
+          file: doc?.file,
+          uc_codigo: aviso.uc_codigo,
+          mes_referencia: aviso.mes_referencia || getMesReferenciaFromDoc(doc),
+          dados_extraidos: doc?.extractedData || {},
+          aviso_original: aviso
+        };
+      })
+    };
+    
+    console.log('✅ Warning data preparado:', warningData);
+    return warningData;
+  };
+  
+  const getMesReferenciaFromDoc = (doc) => {
+    if (!doc?.extractedData?.mes_referencia) return null;
+    
+    // Converter JAN/2025 para 01/2025
+    const mesRef = doc.extractedData.mes_referencia;
+    const mesesMap = {
+      'JAN': '01', 'FEV': '02', 'MAR': '03', 'ABR': '04',
+      'MAI': '05', 'JUN': '06', 'JUL': '07', 'AGO': '08',
+      'SET': '09', 'OUT': '10', 'NOV': '11', 'DEZ': '12'
+    };
+    
+    if (mesRef && mesRef.includes('/')) {
+      const [mes, ano] = mesRef.split('/');
+      const mesNum = mesesMap[mes.toUpperCase()];
+      return mesNum ? `${mesNum}/${ano}` : mesRef;
+    }
+    
+    return mesRef;
+  };
+
+  // ✅ CORREÇÃO: Função para confirmar avisos
   const handleWarningConfirm = async () => {
-    const { pendingUpload } = warningModal;
-    if (!pendingUpload) return;
+    const { pendingUploads } = warningModal;
+    if (!pendingUploads || pendingUploads.length === 0) return;
 
     setWarningModal(prev => ({ ...prev, isProcessing: true }));
 
     try {
-      // Usar a API de força upload
-      const formData = new FormData();
-      formData.append('arquivo', pendingUpload.file);
-      formData.append('uc_codigo', pendingUpload.uc_codigo);
-      formData.append('mes_referencia', pendingUpload.mes_referencia);
-      formData.append('dados_extraidos', JSON.stringify(pendingUpload.dados_extraidos));
+      // Processar todos os uploads pendentes
+      const resultados = [];
+      
+      for (const upload of pendingUploads) {
+        try {
+          const formData = new FormData();
+          formData.append('arquivo', upload.file);
+          formData.append('uc_codigo', upload.uc_codigo);
+          formData.append('mes_referencia', upload.mes_referencia);
+          formData.append('dados_extraidos', JSON.stringify(upload.dados_extraidos));
 
-      const response = await apiClient.post(
-        `/customers/${clienteId}/faturas/force-upload/`,
-        formData,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        }
-      );
+          const response = await apiClient.post(
+            `/customers/${clienteId}/faturas/force-upload/`,
+            formData,
+            {
+              headers: { 'Content-Type': 'multipart/form-data' }
+            }
+          );
 
-      if (response.status === 201) {
-        // Sucesso - limpar tudo
-        documents.forEach(doc => {
-          if (doc.fileUrl) {
-            URL.revokeObjectURL(doc.fileUrl);
+          if (response.status === 201) {
+            resultados.push({
+              sucesso: true,
+              arquivo: upload.file.name,
+              resultado: response.data
+            });
           }
-        });
-        
-        setDocuments([]);
-        setShowReviewModal(false);
-        setWarningModal({
-          isOpen: false,
-          type: null,
-          data: null,
-          pendingUpload: null
-        });
-        
-        if (onUploadSuccess) {
-          onUploadSuccess();
+        } catch (error) {
+          resultados.push({
+            sucesso: false,
+            arquivo: upload.file.name,
+            erro: error.response?.data?.error || error.message
+          });
         }
-        
-        alert('Fatura enviada com sucesso!');
       }
+      
+      // Verificar resultados
+      const sucessos = resultados.filter(r => r.sucesso);
+      const erros = resultados.filter(r => !r.sucesso);
+      
+      // Limpar estado
+      documents.forEach(doc => {
+        if (doc.fileUrl) {
+          URL.revokeObjectURL(doc.fileUrl);
+        }
+      });
+      
+      setDocuments([]);
+      setShowReviewModal(false);
+      setWarningModal({
+        isOpen: false,
+        type: null,
+        data: null,
+        pendingUploads: []
+      });
+      
+      if (onUploadSuccess) {
+        onUploadSuccess();
+      }
+      
+      // Mostrar resultado
+      let mensagem = `${sucessos.length} fatura(s) enviada(s) com sucesso!`;
+      
+      if (erros.length > 0) {
+        mensagem += `\n\n${erros.length} erro(s):\n${erros.map(e => `- ${e.arquivo}: ${e.erro}`).join('\n')}`;
+      }
+      
+      alert(mensagem);
+      
     } catch (error) {
       console.error('Erro ao forçar upload:', error);
-      alert(error.response?.data?.error || 'Erro ao enviar fatura');
+      alert('Erro geral ao processar uploads: ' + (error.response?.data?.error || error.message));
     } finally {
       setWarningModal(prev => ({ ...prev, isProcessing: false }));
     }
@@ -201,6 +305,8 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         formData.append('faturas', doc.file);
       });
       
+      console.log(`📤 Enviando ${validDocuments.length} faturas para processamento`);
+      
       const response = await apiClient.post(
         `/customers/${clienteId}/faturas/upload-with-extraction/`, 
         formData,
@@ -209,55 +315,43 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         }
       );
       
+      console.log('📥 Resposta recebida:', response.status, response.data);
+      
       const result = response.data;
       
-      // Verificar se há avisos
-      if (result.avisos && result.avisos.length > 0) {
-        const primeiroAviso = result.avisos[0];
-        
-        if (primeiroAviso.tipo === 'fatura_duplicada') {
-          // Encontrar documento correspondente
-          const docCorrespondente = validDocuments.find(doc => 
-            doc.fileName === primeiroAviso.arquivo
-          );
-          
-          if (docCorrespondente) {
-            setWarningModal({
-              isOpen: true,
-              type: 'fatura_duplicada',
-              data: primeiroAviso,
-              pendingUpload: {
-                file: docCorrespondente.file,
-                uc_codigo: primeiroAviso.uc_codigo,
-                mes_referencia: primeiroAviso.mes_referencia,
-                dados_extraidos: docCorrespondente.extractedData
-              }
-            });
-          }
-        }
-        
-        setIsProcessing(false);
-        return;
-      }
+      // ✅ CORREÇÃO: Debug detalhado da resposta
+      console.log('🔍 Detalhes da resposta:', {
+        status: response.status,
+        temAvisos: result.avisos?.length > 0,
+        avisos: result.avisos,
+        faturas: result.faturas_processadas?.length || 0,
+        erros: result.faturas_com_erro?.length || 0
+      });
       
-      // Verificar se há faturas com avisos de UC outro cliente
-      if (result.faturas_processadas) {
-        const faturaComAviso = result.faturas_processadas.find(f => f.aviso);
+      // ✅ CORREÇÃO: Verificar status da resposta para identificar avisos
+      if (response.status === 409 && result.avisos && result.avisos.length > 0) {
+        console.log('⚠️ Avisos detectados (status 409):', result.avisos);
         
-        if (faturaComAviso && faturaComAviso.aviso.tipo === 'uc_outro_cliente') {
+        const warningData = processarAvisos(result.avisos, result.faturas_processadas);
+        
+        if (warningData) {
+          console.log('✅ Abrindo modal de aviso:', warningData);
           setWarningModal({
             isOpen: true,
-            type: 'uc_outro_cliente',
-            data: faturaComAviso.aviso,
-            pendingUpload: null // Neste caso já foi processada
+            type: warningData.type,
+            data: warningData.data,
+            pendingUploads: warningData.pendingUploads,
+            isProcessing: false
           });
           
           setIsProcessing(false);
           return;
+        } else {
+          console.error('❌ Falha ao processar warning data');
         }
       }
       
-      // Sucesso sem avisos
+      // ✅ CORREÇÃO: Sucesso sem avisos
       documents.forEach(doc => {
         if (doc.fileUrl) {
           URL.revokeObjectURL(doc.fileUrl);
@@ -271,8 +365,8 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         onUploadSuccess();
       }
       
-      // Mostrar resultado
-      let message = result.message;
+      // Mostrar resultado detalhado
+      let message = result.message || `${result.faturas_processadas?.length || 0} fatura(s) processada(s)`;
       
       if (result.faturas_com_erro && result.faturas_com_erro.length > 0) {
         message += `\n\nErros encontrados:\n${result.faturas_com_erro.map(e => `- ${e.arquivo}: ${e.erro}`).join('\n')}`;
@@ -281,7 +375,57 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
       alert(message);
       
     } catch (error) {
-      console.error('Erro ao salvar:', error);
+      console.error('❌ Erro ao salvar:', error);
+      
+      // ✅ CORREÇÃO: Tratar erro 409 como aviso, não como erro
+      if (error.response?.status === 409) {
+        console.log('⚠️ Erro 409 capturado como aviso:', error.response.data);
+        const result = error.response.data;
+        
+        if (result.avisos && result.avisos.length > 0) {
+          console.log('🔍 Processando avisos do catch 409:', result.avisos);
+          const warningData = processarAvisos(result.avisos, result.faturas_processadas);
+          
+          if (warningData) {
+            console.log('✅ Abrindo modal de aviso (catch):', warningData);
+            setWarningModal({
+              isOpen: true,
+              type: warningData.type,
+              data: warningData.data,
+              pendingUploads: warningData.pendingUploads,
+              isProcessing: false
+            });
+            
+            setIsProcessing(false);
+            return;
+          } else {
+            console.error('❌ Falha ao processar warning data no catch');
+          }
+        } else {
+          // ✅ MELHORIA: Tratar erro 409 mesmo sem o array 'avisos'
+          console.log('⚠️ Tentando tratar 409 com a mensagem de erro principal.');
+          const errorMessage = result.error || 'Conflito detectado.';
+          const warningData = processarAvisos([{
+            tipo: 'FATURA_DUPLICADA',
+            mensagem: errorMessage,
+            arquivo: validDocuments[0]?.fileName // Usa o primeiro arquivo como referência
+          }]);
+
+          if (warningData) {
+            console.log('✅ Abrindo modal de aviso (catch com fallback):', warningData);
+            setWarningModal({
+              isOpen: true,
+              type: warningData.type,
+              data: warningData.data,
+              pendingUploads: warningData.pendingUploads,
+              isProcessing: false
+            });
+            setIsProcessing(false);
+            return;
+          }
+        }
+      }
+      
       alert(error.response?.data?.error || 'Erro ao salvar documentos');
     } finally {
       setIsProcessing(false);
@@ -639,7 +783,10 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         {/* Modal de Avisos */}
         <WarningModal
           isOpen={warningModal.isOpen}
-          onClose={() => setWarningModal(prev => ({ ...prev, isOpen: false }))}
+          onClose={() => {
+            console.log('🔒 Fechando WarningModal');
+            setWarningModal(prev => ({ ...prev, isOpen: false }));
+          }}
           onConfirm={handleWarningConfirm}
           warningType={warningModal.type}
           warningData={warningModal.data}

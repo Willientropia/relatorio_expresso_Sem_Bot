@@ -4,6 +4,8 @@ from django.urls import path
 from . import views
 from .views import RegisterView, ConfirmEmailView, LoginView
 
+# backend/api/urls.py - ADICIONAR esta linha na lista de urlpatterns
+
 urlpatterns = [
     # Rotas de Autenticação
     path('register/', RegisterView.as_view(), name='register'),
@@ -28,6 +30,8 @@ urlpatterns = [
     path('customers/<int:customer_id>/faturas/upload/', views.upload_faturas, name='upload_faturas'),
     path('customers/<int:customer_id>/faturas/upload-with-extraction/', 
          views.upload_faturas_with_extraction, name='upload_faturas_with_extraction'),
+    
+    # ✅ ADICIONAR: Rota para force upload
     path('customers/<int:customer_id>/faturas/force-upload/', 
          views.force_upload_fatura, name='force_upload_fatura'),
     

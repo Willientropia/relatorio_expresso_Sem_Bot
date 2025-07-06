@@ -16,6 +16,9 @@ from django.conf import settings
 from django.db.models import Q
 from datetime import datetime, date
 import calendar
+import uuid
+import traceback
+
 
 # Imports para autenticação
 from django.contrib.auth.models import User
@@ -513,9 +516,11 @@ def extract_fatura_data(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
+
+
 @api_view(['POST'])
 def upload_faturas_with_extraction(request, customer_id):
-    """Upload de faturas com extração automática de dados e validações"""
+    """Upload de faturas com extração automática de dados e validações - CORRIGIDO"""
     try:
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         
@@ -578,11 +583,20 @@ def upload_faturas_with_extraction(request, customer_id):
                         if uc_outros_clientes.exists():
                             uc_outro_cliente = uc_outros_clientes.first()
                             aviso_uc = {
-                                "tipo": "uc_outro_cliente",
+                                "tipo": "UC_OUTRO_CLIENTE",
                                 "uc_codigo": uc_codigo,
-                                "cliente_nome": uc_outro_cliente.customer.nome,
-                                "cliente_id": uc_outro_cliente.customer.id
+                                "cliente_atual": uc_outro_cliente.customer.nome,
+                                "cliente_atual_id": uc_outro_cliente.customer.id,
+                                "cliente_tentativa": customer.nome,
+                                "cliente_tentativa_id": customer.id,
+                                "arquivo": arquivo.name,
+                                "mensagem": f"A UC {uc_codigo} já está associada ao cliente '{uc_outro_cliente.customer.nome}'.",
+                                "dados_extraidos": extracted_data
                             }
+                            
+                            avisos.append(aviso_uc)
+                            print(f"🚨 AVISO: UC {uc_codigo} pertence a outro cliente: {uc_outro_cliente.customer.nome}")
+                            continue
                         
                         # Buscar UC no cliente atual
                         uc = customer.unidades_consumidoras.filter(codigo=uc_codigo).first()
@@ -601,15 +615,28 @@ def upload_faturas_with_extraction(request, customer_id):
                     mes_referencia = None
                     if extracted_data.get('mes_referencia'):
                         try:
-                            # Formato: JAN/2024
+                            # Formato: JAN/2024 ou MAI/2025
                             mes_ano = extracted_data['mes_referencia']
-                            mes_referencia = datetime.strptime(f"01/{mes_ano}", '%d/%b/%Y').date()
-                        except:
+                            # Mapear meses em português
+                            meses_map = {
+                                'JAN': 1, 'FEV': 2, 'MAR': 3, 'ABR': 4, 'MAI': 5, 'JUN': 6,
+                                'JUL': 7, 'AGO': 8, 'SET': 9, 'OUT': 10, 'NOV': 11, 'DEZ': 12
+                            }
+                            
+                            if '/' in mes_ano:
+                                mes_str, ano_str = mes_ano.split('/')
+                                mes_num = meses_map.get(mes_str.upper(), 1)
+                                ano_num = int(ano_str)
+                                mes_referencia = date(ano_num, mes_num, 1)
+                            else:
+                                mes_referencia = timezone.now().date().replace(day=1)
+                        except Exception as e:
+                            print(f"Erro ao processar mês de referência: {e}")
                             mes_referencia = timezone.now().date().replace(day=1)
                     else:
                         mes_referencia = timezone.now().date().replace(day=1)
                     
-                    # Verificar se fatura já existe
+                    # ✅ CORREÇÃO: Verificar se fatura já existe
                     fatura_existente = Fatura.objects.filter(
                         unidade_consumidora=uc,
                         mes_referencia=mes_referencia
@@ -621,7 +648,8 @@ def upload_faturas_with_extraction(request, customer_id):
                             "arquivo": arquivo.name,
                             "uc_codigo": uc.codigo,
                             "mes_referencia": mes_referencia.strftime('%m/%Y'),
-                            "fatura_existente_id": fatura_existente.id
+                            "fatura_existente_id": fatura_existente.id,
+                            "dados_extraidos": extracted_data  # ✅ Incluir dados extraídos
                         })
                         continue
                     
@@ -636,29 +664,44 @@ def upload_faturas_with_extraction(request, customer_id):
                         except:
                             pass
                     
-                    # Criar fatura
-                    fatura = Fatura.objects.create(
-                        unidade_consumidora=uc,
-                        mes_referencia=mes_referencia,
-                        arquivo=arquivo,
-                        valor=extracted_data.get('valor_total'),
-                        vencimento=data_vencimento,
-                        downloaded_at=timezone.now()
-                    )
-                    
-                    resultado_fatura = {
-                        "id": fatura.id,
-                        "arquivo": arquivo.name,
-                        "uc": uc.codigo,
-                        "mes_referencia": mes_referencia,
-                        "valor": fatura.valor,
-                        "dados_extraidos": extracted_data
-                    }
-                    
-                    if aviso_uc:
-                        resultado_fatura["aviso"] = aviso_uc
-                    
-                    faturas_processadas.append(resultado_fatura)
+                    # ✅ CORREÇÃO: Usar transação para evitar conflitos
+                    with transaction.atomic():
+                        # Verificar novamente dentro da transação
+                        if not Fatura.objects.filter(
+                            unidade_consumidora=uc,
+                            mes_referencia=mes_referencia
+                        ).exists():
+                            
+                            # Criar fatura
+                            fatura = Fatura.objects.create(
+                                unidade_consumidora=uc,
+                                mes_referencia=mes_referencia,
+                                arquivo=arquivo,
+                                valor=extracted_data.get('valor_total'),
+                                vencimento=data_vencimento,
+                                downloaded_at=timezone.now()
+                            )
+                            
+                            resultado_fatura = {
+                                "id": fatura.id,
+                                "arquivo": arquivo.name,
+                                "uc": uc.codigo,
+                                "mes_referencia": mes_referencia,
+                                "valor": fatura.valor,
+                                "dados_extraidos": extracted_data
+                            }
+                            
+                            faturas_processadas.append(resultado_fatura)
+                        else:
+                            # Fatura foi criada por outra thread/processo
+                            avisos.append({
+                                "tipo": "fatura_duplicada",
+                                "arquivo": arquivo.name,
+                                "uc_codigo": uc.codigo,
+                                "mes_referencia": mes_referencia.strftime('%m/%Y'),
+                                "fatura_existente_id": None,
+                                "dados_extraidos": extracted_data
+                            })
                     
                 else:
                     faturas_com_erro.append({
@@ -667,18 +710,33 @@ def upload_faturas_with_extraction(request, customer_id):
                     })
                     
             except Exception as e:
+                print(f"Erro ao processar {arquivo.name}: {str(e)}")
                 faturas_com_erro.append({
                     "arquivo": arquivo.name,
-                    "erro": str(e)
+                    "erro": f"Erro interno: {str(e)}"
                 })
         
-        return Response({
+        # ✅ CORREÇÃO: Retornar status baseado na presença de avisos
+        response_data = {
             "message": f"{len(faturas_processadas)} fatura(s) processada(s) com sucesso",
             "faturas_processadas": faturas_processadas,
             "faturas_com_erro": faturas_com_erro,
             "avisos": avisos,
-            "total_enviadas": len(request.FILES.getlist('faturas'))
-        }, status=status.HTTP_201_CREATED)
+            "total_enviadas": len(request.FILES.getlist('faturas')),
+            "tem_avisos": len(avisos) > 0,
+            "tem_erros": len(faturas_com_erro) > 0
+        }
+        
+        # Se há avisos, retornar 409 (Conflict) para indicar que precisa de confirmação
+        if len(avisos) > 0:
+            print(f"🚨 Retornando 409 com {len(avisos)} avisos:", avisos)
+            return Response(response_data, status=status.HTTP_409_CONFLICT)
+        elif len(faturas_processadas) > 0:
+            # Se processou com sucesso sem avisos
+            return Response(response_data, status=status.HTTP_201_CREATED)
+        else:
+            # Se todos falharam
+            return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
         
     except Customer.DoesNotExist:
         return Response(
@@ -686,6 +744,9 @@ def upload_faturas_with_extraction(request, customer_id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        print(f"Erro geral em upload_faturas_with_extraction: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return Response(
             {"error": f"Erro interno: {str(e)}"}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -974,21 +1035,32 @@ def get_faturas_por_ano(request, customer_id):
         )
 
 # View para forçar upload mesmo com avisos
+# backend/api/views.py - ADICIONAR esta view ao final do arquivo
+
 @api_view(['POST'])
 def force_upload_fatura(request, customer_id):
-    """Força o upload de uma fatura mesmo com avisos"""
+    """Força o upload de uma fatura mesmo com avisos - CORRIGIDO"""
     try:
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         
-        # Dados da requisição
+        # ✅ CORREÇÃO: Obter dados do request de forma mais robusta
         uc_codigo = request.data.get('uc_codigo')
         mes_referencia_str = request.data.get('mes_referencia')  # formato: MM/YYYY
         arquivo = request.FILES.get('arquivo')
+        
+        # ✅ CORREÇÃO: Tratar dados extraídos que podem vir como string JSON
         dados_extraidos = request.data.get('dados_extraidos', {})
+        if isinstance(dados_extraidos, str):
+            try:
+                dados_extraidos = json.loads(dados_extraidos)
+            except:
+                dados_extraidos = {}
+        
+        print(f"Force upload - UC: {uc_codigo}, Mês: {mes_referencia_str}, Arquivo: {arquivo}")
         
         if not all([uc_codigo, mes_referencia_str, arquivo]):
             return Response(
-                {"error": "Dados incompletos"}, 
+                {"error": "Dados incompletos. Necessário: uc_codigo, mes_referencia e arquivo"}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
@@ -996,45 +1068,89 @@ def force_upload_fatura(request, customer_id):
         uc = customer.unidades_consumidoras.filter(codigo=uc_codigo).first()
         if not uc:
             return Response(
-                {"error": "UC não encontrada"}, 
+                {"error": f"UC {uc_codigo} não encontrada para este cliente"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
         
-        # Processar mês de referência
+        # ✅ CORREÇÃO: Processar mês de referência de forma mais robusta
         try:
-            mes, ano = mes_referencia_str.split('/')
-            mes_referencia = date(int(ano), int(mes), 1)
-        except:
+            if '/' in mes_referencia_str:
+                # Formato MM/YYYY ou DD/MM/YYYY
+                partes = mes_referencia_str.split('/')
+                if len(partes) == 2:
+                    mes, ano = partes
+                    mes_referencia = date(int(ano), int(mes), 1)
+                elif len(partes) == 3:
+                    # DD/MM/YYYY - pegar mês e ano
+                    dia, mes, ano = partes
+                    mes_referencia = date(int(ano), int(mes), 1)
+                else:
+                    raise ValueError("Formato de data inválido")
+            else:
+                # Tentar outros formatos
+                raise ValueError("Formato de data não reconhecido")
+        except Exception as e:
+            print(f"Erro ao processar data: {e}")
             return Response(
-                {"error": "Formato de data inválido"}, 
+                {"error": f"Formato de data inválido: {mes_referencia_str}. Use MM/YYYY"}, 
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Verificar se já existe e remover
-        Fatura.objects.filter(
-            unidade_consumidora=uc,
-            mes_referencia=mes_referencia
-        ).delete()
-        
-        # Criar nova fatura
-        fatura = Fatura.objects.create(
-            unidade_consumidora=uc,
-            mes_referencia=mes_referencia,
-            arquivo=arquivo,
-            valor=dados_extraidos.get('valor_total'),
-            vencimento=dados_extraidos.get('data_vencimento'),
-            downloaded_at=timezone.now()
-        )
-        
-        return Response({
-            "message": "Fatura enviada com sucesso",
-            "fatura": {
-                "id": fatura.id,
-                "uc": uc.codigo,
-                "mes_referencia": mes_referencia,
-                "valor": fatura.valor
-            }
-        }, status=status.HTTP_201_CREATED)
+        # ✅ CORREÇÃO: Usar transação e remover fatura existente se houver
+        try:
+            with transaction.atomic():
+                # Remover fatura existente se houver
+                faturas_existentes = Fatura.objects.filter(
+                    unidade_consumidora=uc,
+                    mes_referencia=mes_referencia
+                )
+                
+                if faturas_existentes.exists():
+                    print(f"Removendo {faturas_existentes.count()} fatura(s) existente(s)")
+                    faturas_existentes.delete()
+                
+                # Processar data de vencimento dos dados extraídos
+                data_vencimento = None
+                if dados_extraidos.get('data_vencimento'):
+                    try:
+                        data_vencimento = datetime.strptime(
+                            dados_extraidos['data_vencimento'], 
+                            '%d/%m/%Y'
+                        ).date()
+                    except:
+                        pass
+                
+                # Criar nova fatura
+                fatura = Fatura.objects.create(
+                    unidade_consumidora=uc,
+                    mes_referencia=mes_referencia,
+                    arquivo=arquivo,
+                    valor=dados_extraidos.get('valor_total'),
+                    vencimento=data_vencimento,
+                    downloaded_at=timezone.now()
+                )
+                
+                print(f"Fatura criada com sucesso: ID {fatura.id}")
+                
+                return Response({
+                    "message": "Fatura enviada com sucesso",
+                    "fatura": {
+                        "id": fatura.id,
+                        "uc": uc.codigo,
+                        "mes_referencia": mes_referencia.strftime('%m/%Y'),
+                        "valor": fatura.valor,
+                        "arquivo": fatura.arquivo.name if fatura.arquivo else None
+                    }
+                }, status=status.HTTP_201_CREATED)
+                
+        except Exception as e:
+            print(f"Erro na transação: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return Response(
+                {"error": f"Erro ao salvar fatura: {str(e)}"}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
         
     except Customer.DoesNotExist:
         return Response(
@@ -1042,6 +1158,9 @@ def force_upload_fatura(request, customer_id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        print(f"Erro geral em force_upload_fatura: {str(e)}")
+        import traceback
+        traceback.print_exc()
         return Response(
             {"error": f"Erro interno: {str(e)}"}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
