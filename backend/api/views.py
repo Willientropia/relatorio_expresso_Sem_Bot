@@ -260,6 +260,8 @@ class FaturaTaskSerializer(serializers.ModelSerializer):
 
 # backend/api/views.py - Adicione no início das views problemáticas:
 
+# backend/api/views.py - CORREÇÃO da view get_fatura_tasks
+
 @api_view(['GET'])
 def get_fatura_tasks(request, customer_id):
     """Retorna o status das tarefas de importação"""
@@ -269,9 +271,10 @@ def get_fatura_tasks(request, customer_id):
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         print(f"DEBUG: Customer encontrado: {customer.nome}")
         
+        # ✅ CORREÇÃO: Usar ordem por ID ao invés de created_at
         tasks = FaturaTask.objects.filter(
             unidade_consumidora__customer=customer
-        ).order_by('-created_at')[:10]
+        ).order_by('-id')[:10]  # ✅ CORREÇÃO: Ordenar por ID decrescente
         
         print(f"DEBUG: Encontradas {tasks.count()} tasks")
         
@@ -284,7 +287,7 @@ def get_fatura_tasks(request, customer_id):
     except Exception as e:
         print(f"DEBUG: Erro inesperado: {str(e)}")
         return Response({"error": f"Erro interno: {str(e)}"}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
+    
 
 @api_view(['GET'])
 def get_faturas(request, customer_id):
@@ -814,12 +817,28 @@ def extract_fatura_data_view(request):
 # Nova view para buscar faturas organizadas por ano/mês
 # backend/api/views.py - Atualizar a view get_faturas_por_ano
 
+# backend/api/views.py - CORREÇÃO DEFINITIVA da view get_faturas_por_ano
+
 @api_view(['GET'])
 def get_faturas_por_ano(request, customer_id):
     """Retorna as faturas organizadas por ano e mês em português"""
     try:
-        customer = Customer.objects.get(pk=customer_id, user=request.user)
+        print(f"🔍 DEBUG: Buscando faturas para customer_id={customer_id}")
+        print(f"🔍 DEBUG: User={request.user}")
+        
+        # ✅ CORREÇÃO: Verificar se o customer existe e pertence ao usuário
+        try:
+            customer = Customer.objects.get(pk=customer_id, user=request.user)
+            print(f"✅ DEBUG: Customer encontrado: {customer.nome}")
+        except Customer.DoesNotExist:
+            print(f"❌ DEBUG: Customer {customer_id} não encontrado para user {request.user}")
+            return Response(
+                {"error": "Cliente não encontrado"}, 
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
         ano = request.GET.get('ano', datetime.now().year)
+        print(f"🔍 DEBUG: Ano solicitado: {ano}")
         
         # Nomes dos meses em português
         MESES_PT_BR = {
@@ -839,76 +858,118 @@ def get_faturas_por_ano(request, customer_id):
         
         # Buscar todas as UCs do cliente
         ucs = customer.unidades_consumidoras.all()
+        print(f"🔍 DEBUG: UCs encontradas: {ucs.count()}")
+        for uc in ucs:
+            print(f"  - UC {uc.codigo}: {uc.endereco} (Ativa: {uc.is_active})")
         
         # Buscar faturas do ano
-        faturas = Fatura.objects.filter(
-            unidade_consumidora__customer=customer,
-            mes_referencia__year=ano
-        ).order_by('mes_referencia')
+        try:
+            faturas = Fatura.objects.filter(
+                unidade_consumidora__customer=customer,
+                mes_referencia__year=ano
+            ).order_by('mes_referencia')
+            print(f"🔍 DEBUG: Faturas encontradas: {faturas.count()}")
+            for fatura in faturas:
+                print(f"  - Fatura {fatura.id}: UC {fatura.unidade_consumidora.codigo}, Mês {fatura.mes_referencia}")
+        except Exception as e:
+            print(f"❌ DEBUG: Erro ao buscar faturas: {str(e)}")
+            faturas = Fatura.objects.none()
         
         # Organizar por mês
         faturas_por_mes = {}
-        for mes in range(1, 13):
-            mes_info = MESES_PT_BR[mes]
-            faturas_por_mes[mes] = {
-                'mes_numero': mes,
-                'mes_nome': mes_info['nome'],
-                'mes_abrev': mes_info['abrev'],
-                'ucs': []
-            }
-            
-            # Para cada UC, verificar se tem fatura neste mês
-            for uc in ucs:
-                fatura_mes = faturas.filter(
-                    unidade_consumidora=uc,
-                    mes_referencia__month=mes
-                ).first()
-                
-                uc_info = {
-                    'uc_id': uc.id,
-                    'uc_codigo': uc.codigo,
-                    'uc_endereco': uc.endereco,
-                    'uc_tipo': uc.tipo,
-                    'uc_is_active': uc.is_active,
-                    'fatura': None
+        
+        try:
+            for mes in range(1, 13):
+                mes_info = MESES_PT_BR[mes]
+                faturas_por_mes[mes] = {
+                    'mes_numero': mes,
+                    'mes_nome': mes_info['nome'],
+                    'mes_abrev': mes_info['abrev'],
+                    'ucs': []
                 }
                 
-                if fatura_mes:
-                    uc_info['fatura'] = {
-                        'id': fatura_mes.id,
-                        'valor': str(fatura_mes.valor) if fatura_mes.valor else None,
-                        'vencimento': fatura_mes.vencimento.strftime('%d/%m/%Y') if fatura_mes.vencimento else None,
-                        'arquivo_url': fatura_mes.arquivo.url if fatura_mes.arquivo else None,
-                        'downloaded_at': fatura_mes.downloaded_at.strftime('%d/%m/%Y') if fatura_mes.downloaded_at else None
-                    }
-                
-                faturas_por_mes[mes]['ucs'].append(uc_info)
+                # Para cada UC, verificar se tem fatura neste mês
+                for uc in ucs:
+                    try:
+                        fatura_mes = faturas.filter(
+                            unidade_consumidora=uc,
+                            mes_referencia__month=mes
+                        ).first()
+                        
+                        uc_info = {
+                            'uc_id': uc.id,
+                            'uc_codigo': uc.codigo,
+                            'uc_endereco': uc.endereco,
+                            'uc_tipo': uc.tipo,
+                            'uc_is_active': uc.is_active,  # ✅ CORREÇÃO: Usar propriedade Python
+                            'fatura': None
+                        }
+                        
+                        if fatura_mes:
+                            uc_info['fatura'] = {
+                                'id': fatura_mes.id,
+                                'valor': str(fatura_mes.valor) if fatura_mes.valor else None,
+                                'vencimento': fatura_mes.vencimento.strftime('%d/%m/%Y') if fatura_mes.vencimento else None,
+                                'arquivo_url': fatura_mes.arquivo.url if fatura_mes.arquivo else None,
+                                'downloaded_at': fatura_mes.downloaded_at.strftime('%d/%m/%Y') if fatura_mes.downloaded_at else None
+                            }
+                        
+                        faturas_por_mes[mes]['ucs'].append(uc_info)
+                        
+                    except Exception as e:
+                        print(f"❌ DEBUG: Erro ao processar UC {uc.codigo} no mês {mes}: {str(e)}")
+                        continue
+                        
+        except Exception as e:
+            print(f"❌ DEBUG: Erro ao organizar faturas por mês: {str(e)}")
+            # Retornar estrutura mínima em caso de erro
+            faturas_por_mes = {}
         
         # Anos disponíveis
-        anos_disponiveis = list(Fatura.objects.filter(
-            unidade_consumidora__customer=customer
-        ).dates('mes_referencia', 'year').values_list('mes_referencia__year', flat=True))
-        
-        anos_disponiveis = sorted(set(anos_disponiveis), reverse=True)
-        if not anos_disponiveis:
+        try:
+            anos_disponiveis = list(Fatura.objects.filter(
+                unidade_consumidora__customer=customer
+            ).dates('mes_referencia', 'year').values_list('mes_referencia__year', flat=True))
+            
+            anos_disponiveis = sorted(set(anos_disponiveis), reverse=True)
+            if not anos_disponiveis:
+                anos_disponiveis = [datetime.now().year]
+            
+            print(f"🔍 DEBUG: Anos disponíveis: {anos_disponiveis}")
+            
+        except Exception as e:
+            print(f"❌ DEBUG: Erro ao buscar anos disponíveis: {str(e)}")
             anos_disponiveis = [datetime.now().year]
         
-        return Response({
+        # ✅ CORREÇÃO: Calcular UCs ativas usando filtro correto
+        ucs_ativas_count = 0
+        for uc in ucs:
+            if uc.is_active:  # Usar a propriedade Python
+                ucs_ativas_count += 1
+        
+        # Preparar resposta
+        response_data = {
             'ano_atual': int(ano),
             'anos_disponiveis': anos_disponiveis,
             'faturas_por_mes': faturas_por_mes,
             'total_ucs': ucs.count(),
-            'total_ucs_ativas': ucs.filter(is_active=True).count()
-        })
+            'total_ucs_ativas': ucs_ativas_count  # ✅ CORREÇÃO: Usar contagem manual
+        }
         
-    except Customer.DoesNotExist:
-        return Response(
-            {"error": "Cliente não encontrado"}, 
-            status=status.HTTP_404_NOT_FOUND
-        )
+        print(f"✅ DEBUG: Resposta preparada com {len(faturas_por_mes)} meses")
+        
+        return Response(response_data)
+        
     except Exception as e:
+        print(f"❌ DEBUG: Erro geral na view get_faturas_por_ano: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
         return Response(
-            {"error": f"Erro interno: {str(e)}"}, 
+            {
+                "error": f"Erro interno: {str(e)}",
+                "debug": "Verifique os logs do servidor para mais detalhes"
+            }, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 

@@ -30,10 +30,16 @@ class FaturaSerializer(serializers.ModelSerializer):
             return obj.arquivo.url
         return None
 
+# backend/api/serializers.py - CORREÇÃO do FaturaTaskSerializer
+
 class FaturaTaskSerializer(serializers.ModelSerializer):
+    unidade_consumidora_codigo = serializers.CharField(source='unidade_consumidora.codigo', read_only=True)
+    
     class Meta:
         model = FaturaTask
-        fields = '__all__'
+        # ✅ CORREÇÃO: Remover 'created_at' e 'updated_at' que não existem na tabela
+        fields = ['id', 'unidade_consumidora', 'unidade_consumidora_codigo', 
+                  'mes_referencia', 'status', 'completed_at', 'error_message']
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:

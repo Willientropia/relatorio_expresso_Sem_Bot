@@ -1,11 +1,10 @@
-// frontend/src/components/FaturaImport.jsx
+// frontend/src/components/FaturaImport.jsx - VERSÃO CORRIGIDA
 import { useState, useEffect } from 'react';
 import ActionButton from './ActionButton';
 import EmptyState from './EmptyState';
 import { 
   fetchTasks as apiFetchTasks, 
   fetchFaturas as apiFetchFaturas, 
-  fetchLogs as apiFetchLogs, 
   startImport as apiStartImport,
   apiClient 
 } from '../services/api';
@@ -14,27 +13,40 @@ import FaturaUpload from './FaturaUpload';
 const FaturaImport = ({ customerId }) => {
   const [tasks, setTasks] = useState([]);
   const [faturasPorAno, setFaturasPorAno] = useState({});
-  const [logs, setLogs] = useState([]);
+  const [logs, setLogs] = useState([]); // Manter por compatibilidade
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [activeTab, setActiveTab] = useState('faturas');
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear());
   const [anosDisponiveis, setAnosDisponiveis] = useState([]);
 
-  // Buscar faturas organizadas por ano
+  // ✅ CORREÇÃO: Buscar faturas organizadas por ano
   const fetchFaturasPorAno = async (ano = null) => {
     try {
       const anoParam = ano || anoSelecionado;
+      console.log(`📡 Buscando faturas para ano ${anoParam}, cliente ${customerId}`);
+      
       const response = await apiClient.get(`/customers/${customerId}/faturas/por-ano/?ano=${anoParam}`);
       
-      if (response.status === 200) {
-        setFaturasPorAno(response.data.faturas_por_mes);
-        setAnosDisponiveis(response.data.anos_disponiveis);
-        setAnoSelecionado(response.data.ano_atual);
+      if (response.status === 200 && response.data) {
+        console.log('✅ Dados recebidos:', response.data);
+        setFaturasPorAno(response.data.faturas_por_mes || {});
+        setAnosDisponiveis(response.data.anos_disponiveis || [anoParam]);
+        setAnoSelecionado(response.data.ano_atual || anoParam);
       }
     } catch (error) {
-      console.error('Erro ao buscar faturas por ano:', error);
+      console.error('❌ Erro ao buscar faturas por ano:', error);
+      
+      // ✅ CORREÇÃO: Em caso de erro, definir estrutura padrão
+      const currentYear = ano || anoSelecionado;
       setFaturasPorAno({});
+      setAnosDisponiveis([currentYear]);
+      setAnoSelecionado(currentYear);
+      
+      // Mostrar erro específico se for 500
+      if (error.response?.status === 500) {
+        console.error('🚨 Erro interno do servidor. Verifique o backend.');
+      }
     }
   };
 
@@ -50,19 +62,19 @@ const FaturaImport = ({ customerId }) => {
         setImporting(hasActiveTask);
       }
     } catch (error) {
-      console.error('Erro ao buscar tarefas:', error);
+      console.error('❌ Erro ao buscar tarefas:', error);
       setTasks([]);
     }
   };
 
+  // ✅ CORREÇÃO: Remover busca de logs por enquanto
   const fetchLogs = async () => {
     try {
-      const response = await apiFetchLogs(customerId);
-      if (response.status === 200) {
-        setLogs(response.data);
-      }
+      // Por enquanto, deixar vazio até implementarmos os logs no backend
+      setLogs([]);
     } catch (error) {
-      console.error('Erro ao buscar logs:', error);
+      console.error('❌ Erro ao buscar logs:', error);
+      setLogs([]);
     }
   };
 
@@ -71,6 +83,8 @@ const FaturaImport = ({ customerId }) => {
   };
 
   useEffect(() => {
+    console.log(`🔄 FaturaImport useEffect executado para cliente ${customerId}`);
+    
     fetchTasks();
     fetchFaturasPorAno();
     fetchLogs();
@@ -219,7 +233,10 @@ const FaturaImport = ({ customerId }) => {
   };
 
   const renderFaturasPorMes = () => {
-    if (!faturasPorAno || Object.keys(faturasPorAno).length === 0) {
+    // ✅ CORREÇÃO: Verificar se há dados válidos
+    const hasFaturas = faturasPorAno && Object.keys(faturasPorAno).length > 0;
+    
+    if (!hasFaturas) {
       return (
         <div>
           <div className="mb-8">
@@ -228,7 +245,7 @@ const FaturaImport = ({ customerId }) => {
           <EmptyState
             icon="calendar-alt"
             title="Nenhuma fatura encontrada"
-            description="As faturas aparecerão organizadas por mês após a importação ou envio manual."
+            description={`As faturas aparecerão organizadas por mês após a importação ou envio manual para o ano de ${anoSelecionado}.`}
           />
         </div>
       );
@@ -267,7 +284,7 @@ const FaturaImport = ({ customerId }) => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {Object.values(faturasPorAno).map((mesData) => {
             // Filtrar apenas UCs ativas
-            const ucsAtivas = mesData.ucs.filter(uc => uc.uc_is_active);
+            const ucsAtivas = mesData.ucs?.filter(uc => uc.uc_is_active) || [];
             const totalUCs = ucsAtivas.length;
             const ucsComFatura = ucsAtivas.filter(uc => uc.fatura).length;
             const percentualCompleto = totalUCs > 0 ? (ucsComFatura / totalUCs) * 100 : 0;
@@ -373,8 +390,8 @@ const FaturaImport = ({ customerId }) => {
       return (
         <EmptyState
           icon="history"
-          title="Nenhum log de busca"
-          description="Os logs de busca aparecerão aqui após as importações"
+          title="Nenhum log disponível"
+          description="Os logs de atividade aparecerão aqui conforme as operações são realizadas"
         />
       );
     }
@@ -388,19 +405,8 @@ const FaturaImport = ({ customerId }) => {
                 {new Date(log.created_at).toLocaleString('pt-BR')}
               </span>
               <p className="font-medium text-gray-900">
-                CPF Titular: {log.cpf_titular}
+                {log.message || 'Log de atividade'}
               </p>
-            </div>
-            <div className="text-sm text-gray-600">
-              <p>UCs encontradas: {log.ucs_encontradas.join(', ')}</p>
-              <details className="mt-2">
-                <summary className="cursor-pointer text-indigo-600 hover:text-indigo-800">
-                  Ver detalhes das faturas
-                </summary>
-                <pre className="mt-2 bg-gray-50 p-2 rounded text-xs overflow-x-auto">
-                  {JSON.stringify(log.faturas_encontradas, null, 2)}
-                </pre>
-              </details>
             </div>
           </div>
         ))}
@@ -410,6 +416,13 @@ const FaturaImport = ({ customerId }) => {
 
   return (
     <div>
+      {/* Debug Info */}
+      <div className="mb-4 p-3 bg-gray-100 rounded-lg text-sm text-gray-600">
+        <strong>Debug Info:</strong> Cliente ID: {customerId}, Ano: {anoSelecionado}, 
+        Anos Disponíveis: {anosDisponiveis.join(', ')}, 
+        Faturas Carregadas: {Object.keys(faturasPorAno).length} meses
+      </div>
+
       {/* Botão de importar */}
       <div className="mb-6 flex items-center justify-between">
         <h3 className="text-lg font-semibold text-gray-800">
