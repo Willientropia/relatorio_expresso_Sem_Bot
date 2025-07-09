@@ -1,4 +1,4 @@
-// frontend/src/components/FaturaEditModal.jsx
+// frontend/src/components/Modal.jsx
 import React, { useState, useEffect } from 'react';
 import { FaTimes, FaSave, FaSpinner, FaEdit, FaFileInvoiceDollar } from 'react-icons/fa';
 

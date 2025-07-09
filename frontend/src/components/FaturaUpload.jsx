@@ -1,5 +1,5 @@
 import React, { useState, useCallback, useRef } from 'react';
-import { FaUpload, FaFilePdf, FaSpinner, FaTimes, FaEdit, FaSave, FaEye } from 'react-icons/fa';
+import { FaUpload, FaFilePdf, FaSpinner, FaTimes, FaEdit, FaSave, FaEye, FaUser, FaBolt, FaIndustry, FaDollarSign, FaCalendarAlt, FaCalculator } from 'react-icons/fa';
 import { apiClient } from '../services/api';
 import WarningModal from './WarningModal';
 
