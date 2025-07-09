@@ -131,36 +131,66 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
     });
   };
 
+  // ✅ FUNÇÃO COMPLETA handleWarningConfirm
   const handleWarningConfirm = async () => {
     const { pendingUpload } = warningModal;
-    if (!pendingUpload) return;
+    if (!pendingUpload) {
+      console.error('❌ Nenhum upload pendente encontrado');
+      return;
+    }
 
+    console.log('🔧 DEBUG handleWarningConfirm:', pendingUpload);
+    
     setWarningModal(prev => ({ ...prev, isProcessing: true }));
 
     try {
-      // Usar a API de força upload
       const formData = new FormData();
+      
+      // Adicionar arquivo
       formData.append('arquivo', pendingUpload.file);
+      
+      // Adicionar UC código
       formData.append('uc_codigo', pendingUpload.uc_codigo);
+      
+      // Adicionar mês de referência no formato correto
       formData.append('mes_referencia', pendingUpload.mes_referencia);
-      formData.append('dados_extraidos', JSON.stringify(pendingUpload.dados_extraidos));
+      
+      // Adicionar dados extraídos como JSON string
+      if (pendingUpload.dados_extraidos) {
+        formData.append('dados_extraidos', JSON.stringify(pendingUpload.dados_extraidos));
+      }
+      
+      // Debug: Log dos dados sendo enviados
+      console.log('📤 Enviando dados:', {
+        uc_codigo: pendingUpload.uc_codigo,
+        mes_referencia: pendingUpload.mes_referencia,
+        arquivo_name: pendingUpload.file.name,
+        arquivo_size: pendingUpload.file.size,
+        dados_extraidos: pendingUpload.dados_extraidos
+      });
 
       const response = await apiClient.post(
         `/customers/${clienteId}/faturas/force-upload/`,
         formData,
         {
-          headers: { 'Content-Type': 'multipart/form-data' }
+          headers: { 
+            'Content-Type': 'multipart/form-data' 
+          },
+          timeout: 60000 // 60 segundos de timeout
         }
       );
 
       if (response.status === 201) {
-        // Sucesso - limpar tudo
+        console.log('✅ Upload forçado bem-sucedido:', response.data);
+        
+        // Limpar URLs de objeto
         documents.forEach(doc => {
           if (doc.fileUrl) {
             URL.revokeObjectURL(doc.fileUrl);
           }
         });
         
+        // Resetar estados
         setDocuments([]);
         setShowReviewModal(false);
         setWarningModal({
@@ -170,51 +200,169 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
           pendingUpload: null
         });
         
+        // Chamar callback de sucesso
         if (onUploadSuccess) {
           onUploadSuccess();
         }
         
-        alert('Fatura enviada com sucesso!');
+        // Mostrar mensagem de sucesso
+        alert('Fatura substituída com sucesso!');
+      } else {
+        console.error('❌ Resposta inesperada:', response);
+        throw new Error(`Status inesperado: ${response.status}`);
       }
+      
     } catch (error) {
-      console.error('Erro ao forçar upload:', error);
-      alert(error.response?.data?.error || 'Erro ao enviar fatura');
+      console.error('❌ Erro ao forçar upload:', error);
+      
+      let errorMessage = 'Erro desconhecido ao enviar fatura';
+      
+      if (error.response) {
+        // Servidor respondeu com erro
+        console.error('Erro do servidor:', error.response.data);
+        errorMessage = error.response.data?.error || 
+                      `Erro do servidor: ${error.response.status}`;
+      } else if (error.request) {
+        // Request foi feito mas sem resposta
+        console.error('Sem resposta do servidor:', error.request);
+        errorMessage = 'Erro de rede: Sem resposta do servidor';
+      } else {
+        // Erro ao configurar request
+        console.error('Erro de configuração:', error.message);
+        errorMessage = `Erro: ${error.message}`;
+      }
+      
+      alert(errorMessage);
+      
     } finally {
       setWarningModal(prev => ({ ...prev, isProcessing: false }));
     }
   };
 
+  // ✅ FUNÇÃO COMPLETA saveAllDocuments
   const saveAllDocuments = async () => {
+    console.log('🔧 === INÍCIO DEBUG SAVEALL ===');
+    
+    // PASSO 1: Verificar documentos
     const validDocuments = documents.filter(doc => doc.status === 'reviewed');
+    console.log('PASSO 1 - Documentos:', {
+      total: documents.length,
+      validos: validDocuments.length,
+      documentos: documents.map(d => ({
+        fileName: d.fileName,
+        status: d.status,
+        hasFile: !!d.file,
+        fileSize: d.file?.size,
+        fileType: d.file?.type
+      }))
+    });
     
     if (validDocuments.length === 0) {
+      console.error('❌ PASSO 1 FALHOU: Nenhum documento válido');
       alert('Nenhum documento válido para salvar');
+      return;
+    }
+    
+    // PASSO 2: Verificar cliente ID
+    console.log('PASSO 2 - Cliente ID:', {
+      clienteId,
+      tipo: typeof clienteId,
+      isNumber: !isNaN(clienteId),
+      isString: typeof clienteId === 'string'
+    });
+    
+    if (!clienteId) {
+      console.error('❌ PASSO 2 FALHOU: Cliente ID inválido');
+      alert('Erro: ID do cliente não definido');
+      return;
+    }
+    
+    // PASSO 3: Verificar autenticação
+    const accessToken = localStorage.getItem('accessToken');
+    console.log('PASSO 3 - Autenticação:', {
+      hasToken: !!accessToken,
+      tokenPreview: accessToken ? `${accessToken.substring(0, 20)}...` : 'SEM TOKEN'
+    });
+    
+    if (!accessToken) {
+      console.error('❌ PASSO 3 FALHOU: Sem token de acesso');
+      alert('Erro: Usuário não autenticado. Faça login novamente.');
       return;
     }
 
     setIsProcessing(true);
     
     try {
+      // PASSO 4: Criar FormData
+      console.log('PASSO 4 - Criando FormData...');
       const formData = new FormData();
       
-      validDocuments.forEach(doc => {
+      validDocuments.forEach((doc, index) => {
+        console.log(`📎 PASSO 4.${index + 1} - Adicionando:`, {
+          fileName: doc.fileName,
+          fileSize: doc.file.size,
+          fileType: doc.file.type,
+          lastModified: doc.file.lastModified
+        });
+        
+        // Verificar se o arquivo ainda é válido
+        if (!doc.file || doc.file.size === 0) {
+          throw new Error(`Arquivo ${doc.fileName} é inválido ou vazio`);
+        }
+        
         formData.append('faturas', doc.file);
       });
       
-      const response = await apiClient.post(
-        `/customers/${clienteId}/faturas/upload-with-extraction/`, 
-        formData,
-        {
-          headers: { 'Content-Type': 'multipart/form-data' }
-        }
-      );
+      console.log('✅ PASSO 4 CONCLUÍDO - FormData criado');
       
+      // PASSO 5: Preparar URL e headers
+      const url = `/customers/${clienteId}/faturas/upload-with-extraction/`;
+      const headers = { 
+        'Content-Type': 'multipart/form-data',
+        'Authorization': `Bearer ${accessToken}`
+      };
+      
+      console.log('PASSO 5 - Preparando requisição:', {
+        url,
+        method: 'POST',
+        headers: headers,
+        formDataEntries: formData.has('faturas') ? 'Arquivos presentes' : 'ERRO: Sem arquivos'
+      });
+      
+      // PASSO 6: Fazer a requisição
+      console.log('PASSO 6 - Enviando requisição...');
+      console.time('⏱️ Tempo de upload');
+      
+      const response = await apiClient.post(url, formData, {
+        headers: headers,
+        timeout: 120000,
+        onUploadProgress: (progressEvent) => {
+          const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+          if (percentCompleted % 10 === 0) { // Log a cada 10%
+            console.log(`📊 Upload: ${percentCompleted}%`);
+          }
+        }
+      });
+      
+      console.timeEnd('⏱️ Tempo de upload');
+      console.log('✅ PASSO 6 CONCLUÍDO - Resposta recebida:', {
+        status: response.status,
+        statusText: response.statusText,
+        dataKeys: Object.keys(response.data || {})
+      });
+      
+      // PASSO 7: Processar resposta
+      console.log('PASSO 7 - Processando resposta...');
       const result = response.data;
       
-      // Verificar se há avisos
+      console.log('📥 Dados completos da resposta:', result);
+      
+      // ✅ NOVO: Verificar se há avisos e tratá-los adequadamente
       if (result.avisos && result.avisos.length > 0) {
+        console.log('⚠️ Avisos encontrados:', result.avisos);
         const primeiroAviso = result.avisos[0];
         
+        // ✅ NOVO: Diferentes tipos de avisos
         if (primeiroAviso.tipo === 'fatura_duplicada') {
           // Encontrar documento correspondente
           const docCorrespondente = validDocuments.find(doc => 
@@ -222,34 +370,58 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
           );
           
           if (docCorrespondente) {
+            console.log('🔍 Documento correspondente encontrado:', docCorrespondente.fileName);
+            
+            const dadosParaForceUpload = {
+              file: docCorrespondente.file,
+              uc_codigo: primeiroAviso.uc_codigo,
+              mes_referencia: primeiroAviso.mes_referencia,
+              dados_extraidos: docCorrespondente.extractedData || docCorrespondente.modifiedData
+            };
+            
+            console.log('📋 Dados preparados para force upload:', {
+              uc_codigo: dadosParaForceUpload.uc_codigo,
+              mes_referencia: dadosParaForceUpload.mes_referencia,
+              arquivo: dadosParaForceUpload.file.name
+            });
+            
             setWarningModal({
               isOpen: true,
               type: 'fatura_duplicada',
               data: primeiroAviso,
-              pendingUpload: {
-                file: docCorrespondente.file,
-                uc_codigo: primeiroAviso.uc_codigo,
-                mes_referencia: primeiroAviso.mes_referencia,
-                dados_extraidos: docCorrespondente.extractedData
-              }
+              pendingUpload: dadosParaForceUpload
             });
+          } else {
+            console.error('❌ Documento correspondente não encontrado para:', primeiroAviso.arquivo);
+            alert('Erro: Não foi possível encontrar o documento correspondente ao aviso');
           }
+          
+          setIsProcessing(false);
+          return;
         }
         
-        setIsProcessing(false);
-        return;
-      }
-      
-      // Verificar se há faturas com avisos de UC outro cliente
-      if (result.faturas_processadas) {
-        const faturaComAviso = result.faturas_processadas.find(f => f.aviso);
-        
-        if (faturaComAviso && faturaComAviso.aviso.tipo === 'uc_outro_cliente') {
+        // ✅ NOVO: UC pertence a outro cliente - apenas informativo
+        if (primeiroAviso.tipo === 'uc_outro_cliente') {
+          console.log('⚠️ UC pertence a outro cliente:', primeiroAviso);
           setWarningModal({
             isOpen: true,
             type: 'uc_outro_cliente',
-            data: faturaComAviso.aviso,
-            pendingUpload: null // Neste caso já foi processada
+            data: primeiroAviso,
+            pendingUpload: null
+          });
+          
+          setIsProcessing(false);
+          return;
+        }
+        
+        // ✅ NOVO: UC não encontrada - apenas informativo
+        if (primeiroAviso.tipo === 'uc_nao_encontrada') {
+          console.log('⚠️ UC não encontrada no sistema:', primeiroAviso);
+          setWarningModal({
+            isOpen: true,
+            type: 'uc_nao_encontrada',
+            data: primeiroAviso,
+            pendingUpload: null
           });
           
           setIsProcessing(false);
@@ -257,7 +429,53 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         }
       }
       
-      // Sucesso sem avisos
+      // ✅ MANTIDO: Verificar se há faturas com avisos de UC outro cliente (compatibilidade)
+      if (result.faturas_processadas) {
+        const faturasComAviso = result.faturas_processadas.filter(f => f.aviso);
+        
+        if (faturasComAviso.length > 0) {
+          const faturaComAviso = faturasComAviso[0];
+          
+          if (faturaComAviso.aviso.tipo === 'uc_outro_cliente') {
+            const avisoDetalhado = {
+              ...faturaComAviso.aviso,
+              faturas_afetadas: faturasComAviso.length,
+              detalhes_faturas: faturasComAviso.map(f => ({
+                arquivo: f.arquivo,
+                uc: f.uc,
+                mes_referencia: f.mes_referencia,
+                fatura_id: f.id
+              }))
+            };
+            
+            documents.forEach(doc => {
+              if (doc.fileUrl) {
+                URL.revokeObjectURL(doc.fileUrl);
+              }
+            });
+            
+            setDocuments([]);
+            setShowReviewModal(false);
+            
+            if (onUploadSuccess) {
+              onUploadSuccess();
+            }
+            
+            setWarningModal({
+              isOpen: true,
+              type: 'uc_outro_cliente_info',
+              data: avisoDetalhado,
+              pendingUpload: null
+            });
+            
+            setIsProcessing(false);
+            return;
+          }
+        }
+      }
+      
+      console.log('✅ Upload concluído sem avisos');
+      
       documents.forEach(doc => {
         if (doc.fileUrl) {
           URL.revokeObjectURL(doc.fileUrl);
@@ -271,21 +489,128 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         onUploadSuccess();
       }
       
-      // Mostrar resultado
-      let message = result.message;
+      // ✅ MELHORADO: Mostrar resultado detalhado
+      let message = result.message || 'Upload concluído com sucesso';
       
       if (result.faturas_com_erro && result.faturas_com_erro.length > 0) {
         message += `\n\nErros encontrados:\n${result.faturas_com_erro.map(e => `- ${e.arquivo}: ${e.erro}`).join('\n')}`;
       }
       
+      if (result.faturas_processadas && result.faturas_processadas.length > 0) {
+        message += `\n\nFaturas processadas: ${result.faturas_processadas.length}`;
+      }
+      
+      // ✅ NOVO: Mostrar avisos informativos (não bloqueantes)
+      if (result.avisos && result.avisos.length > 0) {
+        const avisosInfo = result.avisos.filter(a => 
+          a.tipo === 'uc_nao_encontrada' || a.tipo === 'uc_outro_cliente'
+        );
+        
+        if (avisosInfo.length > 0) {
+          message += `\n\nAvisos:\n${avisosInfo.map(a => `- ${a.arquivo}: ${a.mensagem}`).join('\n')}`;
+        }
+      }
+      
       alert(message);
       
+      console.log('✅ === SUCESSO COMPLETO ===');
+      
     } catch (error) {
-      console.error('Erro ao salvar:', error);
-      alert(error.response?.data?.error || 'Erro ao salvar documentos');
+      console.timeEnd('⏱️ Tempo de upload');
+      console.error('❌ === ERRO DETECTADO ===');
+      
+      // ANÁLISE DETALHADA DO ERRO
+      console.error('🔍 Análise completa do erro:');
+      console.error('  Tipo:', error.constructor.name);
+      console.error('  Mensagem:', error.message);
+      console.error('  Code:', error.code);
+      console.error('  Config URL:', error.config?.url);
+      console.error('  Config Method:', error.config?.method);
+      
+      if (error.response) {
+        console.error('📥 RESPOSTA DO SERVIDOR:');
+        console.error('  Status:', error.response.status);
+        console.error('  Status Text:', error.response.statusText);
+        console.error('  Headers:', error.response.headers);
+        console.error('  Data:', error.response.data);
+        
+        // Análise específica do erro 400
+        if (error.response.status === 400) {
+          console.error('🔍 ANÁLISE ERRO 400:');
+          console.error('  - Verificar se cliente ID é válido');
+          console.error('  - Verificar se usuário tem permissão');
+          console.error('  - Verificar se arquivos foram enviados corretamente');
+          console.error('  - Verificar se arquivos são PDFs válidos');
+          
+          const errorData = error.response.data;
+          if (errorData && errorData.error) {
+            alert(`Erro 400: ${errorData.error}`);
+          } else {
+            alert('Erro 400: Requisição inválida. Verifique os logs do console para mais detalhes.');
+          }
+        } else {
+          // ✅ MELHORADO: Tratamento de outros erros
+          let errorMessage = 'Erro ao salvar documentos';
+          
+          if (error.response.data?.error) {
+            errorMessage = error.response.data.error;
+          } else if (error.response.data?.avisos) {
+            // Se o erro vier como avisos
+            const avisos = error.response.data.avisos;
+            errorMessage = avisos.map(a => a.mensagem).join('\n');
+          } else if (error.response.data?.detail) {
+            errorMessage = error.response.data.detail;
+          }
+          
+          alert(errorMessage);
+        }
+      } else if (error.request) {
+        console.error('📡 SEM RESPOSTA DO SERVIDOR:');
+        console.error('  Request:', error.request);
+        alert('Erro: Sem resposta do servidor. Verifique sua conexão.');
+      } else {
+        console.error('⚙️ ERRO DE CONFIGURAÇÃO:');
+        console.error('  Detalhes:', error.message);
+        alert(`Erro de configuração: ${error.message}`);
+      }
+      
+      console.error('❌ === FIM ANÁLISE ERRO ===');
+      
     } finally {
       setIsProcessing(false);
+      console.log('🔧 === FIM DEBUG SAVEALL ===');
     }
+  };
+
+  
+  // Função para renderizar campos por seção
+  const renderFieldSection = (sectionTitle, sectionIcon, fields, bgColor = 'bg-gray-50') => {
+    const currentDoc = documents[activeTab];
+    
+    return (
+      <div className={`${bgColor} p-4 rounded-lg mb-6`}>
+        <div className="flex items-center mb-4">
+          {sectionIcon}
+          <h4 className="font-medium text-gray-800 ml-2">{sectionTitle}</h4>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {fields.map(({ field, label, placeholder, type = 'text' }) => (
+            <div key={field}>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                {label}
+              </label>
+              <input
+                type={type}
+                placeholder={placeholder}
+                value={currentDoc?.modifiedData?.[field] || ''}
+                onChange={(e) => updateDocumentData(currentDoc.id, field, e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   };
 
   const currentDoc = documents[activeTab];
@@ -340,7 +665,6 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
           </div>
         )}
 
-        {/* Modal de Avisos */}
         <WarningModal
           isOpen={warningModal.isOpen}
           onClose={() => setWarningModal(prev => ({ ...prev, isOpen: false }))}
@@ -359,7 +683,7 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
         {/* Header */}
         <div className="flex justify-between items-center p-4 border-b">
           <h2 className="text-xl font-bold text-gray-800">
-            Revisão de Faturas ({documents.length})
+            Revisão Completa de Faturas ({documents.length})
           </h2>
           <button
             onClick={() => setShowReviewModal(false)}
@@ -401,7 +725,7 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
 
         {/* Main Content */}
         <div className="flex-1 flex overflow-hidden">
-          {/* Left Panel - Form */}
+          {/* Left Panel - Formulário Completo */}
           <div className="w-1/2 p-6 overflow-y-auto border-r">
             {currentDoc?.status === 'error' ? (
               <div className="text-center py-12">
@@ -415,153 +739,123 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
               <div className="space-y-6">
                 <div className="flex items-center justify-between mb-6">
                   <h3 className="text-lg font-semibold text-gray-800">
-                    Dados da Fatura
+                    Dados Completos da Fatura
                   </h3>
                   <FaEdit className="h-5 w-5 text-gray-400" />
                 </div>
 
                 {/* Seção: Informações Básicas */}
-                <div className="bg-gray-50 p-4 rounded-lg">
-                  <h4 className="font-medium text-gray-800 mb-3">📄 Informações Básicas</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Unidade Consumidora
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.unidade_consumidora || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'unidade_consumidora', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Mês de Referência
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="JAN/2024"
-                        value={currentDoc?.modifiedData?.mes_referencia || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'mes_referencia', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Data de Vencimento
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="DD/MM/AAAA"
-                        value={currentDoc?.modifiedData?.data_vencimento || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'data_vencimento', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Valor Total (R$)
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.valor_total || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'valor_total', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Seção: Consumo de Energia */}
-                <div className="bg-blue-50 p-4 rounded-lg">
-                  <h4 className="font-medium text-gray-800 mb-3">⚡ Consumo de Energia</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Consumo Total (kWh)
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.consumo_kwh || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'consumo_kwh', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Saldo de Energia (kWh)
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.saldo_kwh || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'saldo_kwh', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
-
-                {/* Seção: Energia Solar (SCEE) */}
-                <div className="bg-yellow-50 p-4 rounded-lg">
-                  <h4 className="font-medium text-gray-800 mb-3">☀️ Energia Solar (SCEE)</h4>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Energia Injetada (kWh)
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.energia_injetada || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'energia_injetada', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Consumo SCEE (kWh)
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.consumo_scee || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'consumo_scee', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-                </div>
+                {renderFieldSection(
+                  'Informações Básicas',
+                  <FaFilePdf className="h-5 w-5 text-gray-600" />,
+                  [
+                    { field: 'unidade_consumidora', label: 'Unidade Consumidora', placeholder: 'Ex: 123456789' },
+                    { field: 'mes_referencia', label: 'Mês de Referência', placeholder: 'Ex: JAN/2024' },
+                    { field: 'data_vencimento', label: 'Data de Vencimento', placeholder: 'DD/MM/AAAA' },
+                    { field: 'valor_total', label: 'Valor Total (R$)', placeholder: 'Ex: 150.25' },
+                    { field: 'distribuidora', label: 'Distribuidora', placeholder: 'Ex: Equatorial Energia' },
+                    { field: 'arquivo_processado', label: 'Arquivo Processado', placeholder: 'Nome do arquivo' }
+                  ],
+                  'bg-blue-50'
+                )}
 
                 {/* Seção: Informações do Cliente */}
-                <div className="bg-purple-50 p-4 rounded-lg">
-                  <h4 className="font-medium text-gray-800 mb-3">👤 Informações do Cliente</h4>
-                  <div className="grid grid-cols-1 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Nome do Cliente
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.nome_cliente || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'nome_cliente', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+                {renderFieldSection(
+                  'Informações do Cliente',
+                  <FaUser className="h-5 w-5 text-purple-600" />,
+                  [
+                    { field: 'nome_cliente', label: 'Nome do Cliente', placeholder: 'Nome completo' },
+                    { field: 'cpf_cnpj', label: 'CPF/CNPJ', placeholder: '000.000.000-00' },
+                    { field: 'endereco_cliente', label: 'Endereço', placeholder: 'Endereço completo' }
+                  ],
+                  'bg-purple-50'
+                )}
 
+                {/* Seção: Consumo de Energia */}
+                {renderFieldSection(
+                  'Consumo de Energia',
+                  <FaBolt className="h-5 w-5 text-yellow-600" />,
+                  [
+                    { field: 'consumo_kwh', label: 'Consumo Total (kWh)', placeholder: 'Ex: 250.5' },
+                    { field: 'saldo_kwh', label: 'Saldo de Energia (kWh)', placeholder: 'Ex: 150.0' },
+                    { field: 'consumo_nao_compensado', label: 'Consumo Não Compensado (kWh)', placeholder: 'Ex: 100.0' },
+                    { field: 'preco_kwh_nao_compensado', label: 'Preço kWh Não Compensado (R$)', placeholder: 'Ex: 0.75' }
+                  ],
+                  'bg-yellow-50'
+                )}
+
+                {/* Seção: Energia Solar (SCEE) */}
+                {renderFieldSection(
+                  'Energia Solar (SCEE)',
+                  <FaIndustry className="h-5 w-5 text-green-600" />,
+                  [
+                    { field: 'energia_injetada', label: 'Energia Injetada (kWh)', placeholder: 'Ex: 200.0' },
+                    { field: 'preco_energia_injetada', label: 'Preço Energia Injetada (R$)', placeholder: 'Ex: 120.50' },
+                    { field: 'consumo_scee', label: 'Consumo SCEE (kWh)', placeholder: 'Ex: 180.0' },
+                    { field: 'preco_energia_compensada', label: 'Preço Energia Compensada (R$)', placeholder: 'Ex: 108.00' }
+                  ],
+                  'bg-green-50'
+                )}
+
+                {/* Seção: Valores Financeiros */}
+                {renderFieldSection(
+                  'Valores Financeiros',
+                  <FaDollarSign className="h-5 w-5 text-red-600" />,
+                  [
+                    { field: 'contribuicao_iluminacao', label: 'Contribuição Iluminação Pública (R$)', placeholder: 'Ex: 25.00' },
+                    { field: 'preco_fio_b', label: 'Preço Fio B (R$)', placeholder: 'Ex: 15.50' },
+                    { field: 'preco_adc_bandeira', label: 'Preço ADC Bandeira (R$)', placeholder: 'Ex: 8.75' }
+                  ],
+                  'bg-red-50'
+                )}
+
+                {/* Seção: Informações de Leitura */}
+                {renderFieldSection(
+                  'Informações de Leitura',
+                  <FaCalendarAlt className="h-5 w-5 text-indigo-600" />,
+                  [
+                    { field: 'leitura_anterior', label: 'Leitura Anterior', placeholder: 'DD/MM/AAAA' },
+                    { field: 'leitura_atual', label: 'Leitura Atual', placeholder: 'DD/MM/AAAA' },
+                    { field: 'quantidade_dias', label: 'Quantidade de Dias', placeholder: 'Ex: 30' }
+                  ],
+                  'bg-indigo-50'
+                )}
+
+                {/* Seção: Geração Solar */}
+                {renderFieldSection(
+                  'Geração Solar',
+                  <FaCalculator className="h-5 w-5 text-orange-600" />,
+                  [
+                    { field: 'ciclo_geracao', label: 'Ciclo de Geração', placeholder: 'Ex: 01/2024' },
+                    { field: 'uc_geradora', label: 'UC Geradora', placeholder: 'Ex: 987654321' },
+                    { field: 'geracao_ultimo_ciclo', label: 'Geração Último Ciclo (kWh)', placeholder: 'Ex: 300.0' }
+                  ],
+                  'bg-orange-50'
+                )}
+
+                {/* Status da Extração */}
+                <div className="bg-gray-100 p-4 rounded-lg">
+                  <h4 className="font-medium text-gray-800 mb-2">📊 Status da Extração</h4>
+                  <div className="grid grid-cols-2 gap-4 text-sm">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        CPF/CNPJ
-                      </label>
-                      <input
-                        type="text"
-                        value={currentDoc?.modifiedData?.cpf_cnpj || ''}
-                        onChange={(e) => updateDocumentData(currentDoc.id, 'cpf_cnpj', e.target.value)}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
+                      <span className="text-gray-600">Status:</span>
+                      <span className={`ml-2 px-2 py-1 rounded text-xs ${
+                        currentDoc?.extractedData?.status === 'success' 
+                          ? 'bg-green-100 text-green-800' 
+                          : 'bg-red-100 text-red-800'
+                      }`}>
+                        {currentDoc?.extractedData?.status || 'N/A'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-600">Campos Extraídos:</span>
+                      <span className="ml-2 font-medium">
+                        {currentDoc?.extractedData ? 
+                          Object.keys(currentDoc.extractedData).filter(key => 
+                            key !== 'status' && key !== 'dados_completos' && currentDoc.extractedData[key]
+                          ).length : 0
+                        }
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -636,7 +930,6 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
           className="hidden"
         />
 
-        {/* Modal de Avisos */}
         <WarningModal
           isOpen={warningModal.isOpen}
           onClose={() => setWarningModal(prev => ({ ...prev, isOpen: false }))}

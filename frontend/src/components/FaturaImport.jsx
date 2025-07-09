@@ -1,4 +1,4 @@
-// frontend/src/components/FaturaImport.jsx - VERSÃO CORRIGIDA
+// frontend/src/components/FaturaImport.jsx - VERSÃO COM EDIÇÃO
 import { useState, useEffect } from 'react';
 import ActionButton from './ActionButton';
 import EmptyState from './EmptyState';
@@ -9,24 +9,33 @@ import {
   apiClient 
 } from '../services/api';
 import FaturaUpload from './FaturaUpload';
+import FaturaEditModal from './FaturaEditModal';
+import DebugPanel from './DebugPanel';
 
 const FaturaImport = ({ customerId }) => {
   const [tasks, setTasks] = useState([]);
   const [faturasPorAno, setFaturasPorAno] = useState({});
-  const [logs, setLogs] = useState([]); // Manter por compatibilidade
+  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [importing, setImporting] = useState(false);
   const [activeTab, setActiveTab] = useState('faturas');
   const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear());
   const [anosDisponiveis, setAnosDisponiveis] = useState([]);
+  
+  // ✅ NOVO: Estado para edição de fatura
+  const [editingFatura, setEditingFatura] = useState(null);
+  const [showEditModal, setShowEditModal] = useState(false);
 
-  // ✅ CORREÇÃO: Buscar faturas organizadas por ano
-  const fetchFaturasPorAno = async (ano = null) => {
+  // ✅ CORREÇÃO: Buscar faturas organizadas por ano com refresh forçado
+  const fetchFaturasPorAno = async (ano = null, forceRefresh = false) => {
     try {
       const anoParam = ano || anoSelecionado;
-      console.log(`📡 Buscando faturas para ano ${anoParam}, cliente ${customerId}`);
+      console.log(`📡 Buscando faturas para ano ${anoParam}, cliente ${customerId}${forceRefresh ? ' (REFRESH FORÇADO)' : ''}`);
       
-      const response = await apiClient.get(`/customers/${customerId}/faturas/por-ano/?ano=${anoParam}`);
+      // ✅ CORREÇÃO: Adicionar timestamp para forçar refresh do cache
+      const cacheParam = forceRefresh ? `&_t=${Date.now()}` : '';
+      
+      const response = await apiClient.get(`/customers/${customerId}/faturas/por-ano/?ano=${anoParam}${cacheParam}`);
       
       if (response.status === 200 && response.data) {
         console.log('✅ Dados recebidos:', response.data);
@@ -37,13 +46,11 @@ const FaturaImport = ({ customerId }) => {
     } catch (error) {
       console.error('❌ Erro ao buscar faturas por ano:', error);
       
-      // ✅ CORREÇÃO: Em caso de erro, definir estrutura padrão
       const currentYear = ano || anoSelecionado;
       setFaturasPorAno({});
       setAnosDisponiveis([currentYear]);
       setAnoSelecionado(currentYear);
       
-      // Mostrar erro específico se for 500
       if (error.response?.status === 500) {
         console.error('🚨 Erro interno do servidor. Verifique o backend.');
       }
@@ -67,10 +74,8 @@ const FaturaImport = ({ customerId }) => {
     }
   };
 
-  // ✅ CORREÇÃO: Remover busca de logs por enquanto
   const fetchLogs = async () => {
     try {
-      // Por enquanto, deixar vazio até implementarmos os logs no backend
       setLogs([]);
     } catch (error) {
       console.error('❌ Erro ao buscar logs:', error);
@@ -78,8 +83,51 @@ const FaturaImport = ({ customerId }) => {
     }
   };
 
+  // ✅ CORREÇÃO: Função de upload success com refresh forçado
   const handleUploadSuccess = () => {
-    fetchFaturasPorAno();
+    console.log('🔄 Upload bem-sucedido, forçando refresh...');
+    fetchFaturasPorAno(null, true); // Força refresh
+  };
+
+  // ✅ NOVO: Funções para edição de fatura
+  const handleEditFatura = async (faturaId) => {
+    try {
+      console.log('📝 Abrindo edição para fatura ID:', faturaId);
+      
+      const response = await apiClient.get(`/faturas/${faturaId}/edit/`);
+      
+      if (response.status === 200) {
+        setEditingFatura(response.data);
+        setShowEditModal(true);
+      }
+    } catch (error) {
+      console.error('❌ Erro ao carregar dados da fatura:', error);
+      alert('Erro ao carregar dados da fatura');
+    }
+  };
+
+  const handleSaveEdit = async (dadosEditados) => {
+    try {
+      console.log('💾 Salvando edição da fatura:', dadosEditados);
+      
+      const response = await apiClient.put(`/faturas/${editingFatura.id}/edit/`, dadosEditados);
+      
+      if (response.status === 200) {
+        console.log('✅ Fatura editada com sucesso');
+        setShowEditModal(false);
+        setEditingFatura(null);
+        
+        // ✅ CORREÇÃO: Força refresh após edição
+        fetchFaturasPorAno(null, true);
+        
+        alert('Fatura atualizada com sucesso!');
+      }
+    } catch (error) {
+      console.error('❌ Erro ao salvar edição:', error);
+      
+      const errorMsg = error.response?.data?.error || 'Erro ao salvar alterações';
+      alert(`Erro: ${errorMsg}`);
+    }
   };
 
   useEffect(() => {
@@ -150,6 +198,7 @@ const FaturaImport = ({ customerId }) => {
     }
   };
 
+  // ✅ ATUALIZADO: Renderizar card da UC com botão de edição
   const renderCardUC = (ucInfo, mesNome) => {
     const temFatura = !!ucInfo.fatura;
     
@@ -204,17 +253,29 @@ const FaturaImport = ({ customerId }) => {
               <span className="text-xs text-gray-500">
                 Baixada em {ucInfo.fatura.downloaded_at}
               </span>
-              {ucInfo.fatura.arquivo_url && (
-                <a
-                  href={ucInfo.fatura.arquivo_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition-colors flex items-center"
+              <div className="flex space-x-1">
+                {/* ✅ NOVO: Botão de editar fatura */}
+                <button
+                  onClick={() => handleEditFatura(ucInfo.fatura.id)}
+                  className="text-xs bg-orange-500 text-white px-2 py-1 rounded hover:bg-orange-600 transition-colors flex items-center"
+                  title="Editar fatura"
                 >
-                  <i className="fas fa-download mr-1"></i>
-                  PDF
-                </a>
-              )}
+                  <i className="fas fa-edit mr-1"></i>
+                  Editar
+                </button>
+                
+                {ucInfo.fatura.arquivo_url && (
+                  <a
+                    href={ucInfo.fatura.arquivo_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-xs bg-blue-500 text-white px-2 py-1 rounded hover:bg-blue-600 transition-colors flex items-center"
+                  >
+                    <i className="fas fa-download mr-1"></i>
+                    PDF
+                  </a>
+                )}
+              </div>
             </div>
           </div>
         ) : (
@@ -233,7 +294,6 @@ const FaturaImport = ({ customerId }) => {
   };
 
   const renderFaturasPorMes = () => {
-    // ✅ CORREÇÃO: Verificar se há dados válidos
     const hasFaturas = faturasPorAno && Object.keys(faturasPorAno).length > 0;
     
     if (!hasFaturas) {
@@ -283,23 +343,20 @@ const FaturaImport = ({ customerId }) => {
         {/* Grade de Meses */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
           {Object.values(faturasPorAno).map((mesData) => {
-            // Filtrar apenas UCs ativas
             const ucsAtivas = mesData.ucs?.filter(uc => uc.uc_is_active) || [];
             const totalUCs = ucsAtivas.length;
             const ucsComFatura = ucsAtivas.filter(uc => uc.fatura).length;
             const percentualCompleto = totalUCs > 0 ? (ucsComFatura / totalUCs) * 100 : 0;
             
-            // Determinar cor do header baseado na completude
-            let headerColor = 'bg-red-500'; // Nenhuma fatura
+            let headerColor = 'bg-red-500';
             if (percentualCompleto === 100) {
-              headerColor = 'bg-green-500'; // Todas as faturas
+              headerColor = 'bg-green-500';
             } else if (percentualCompleto > 0) {
-              headerColor = 'bg-yellow-500'; // Algumas faturas
+              headerColor = 'bg-yellow-500';
             }
             
             return (
               <div key={mesData.mes_numero} className="bg-white rounded-xl shadow-md overflow-hidden hover:shadow-lg transition-shadow">
-                {/* Header do Mês */}
                 <div className={`p-4 ${headerColor} text-white`}>
                   <div className="flex items-center justify-between mb-2">
                     <h4 className="text-lg font-semibold">
@@ -310,7 +367,6 @@ const FaturaImport = ({ customerId }) => {
                     </div>
                   </div>
                   
-                  {/* Barra de Progresso */}
                   <div className="bg-white bg-opacity-30 rounded-full h-2 mb-2">
                     <div 
                       className="bg-white h-2 rounded-full transition-all duration-500 ease-out"
@@ -482,6 +538,24 @@ const FaturaImport = ({ customerId }) => {
         {activeTab === 'tasks' && renderTasks()}
         {activeTab === 'logs' && renderLogs()}
       </div>
+
+      {/* ✅ NOVO: Modal de Edição de Fatura */}
+      {showEditModal && editingFatura && (
+        <FaturaEditModal
+          fatura={editingFatura}
+          isOpen={showEditModal}
+          onClose={() => {
+            setShowEditModal(false);
+            setEditingFatura(null);
+          }}
+          onSave={handleSaveEdit}
+        />
+      )}
+
+      {/* ✅ NOVO: Debug Panel (apenas em desenvolvimento) */}
+      {process.env.NODE_ENV === 'development' && (
+        <DebugPanel customerId={customerId} />
+      )}
     </div>
   );
 };

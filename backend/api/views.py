@@ -1,5 +1,6 @@
-# backend/api/views.py
+# backend/api/
 import sys
+
 from rest_framework import status, generics, permissions
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
@@ -7,6 +8,9 @@ from .models import Customer, UnidadeConsumidora, FaturaTask, Fatura
 from rest_framework import serializers
 from django.utils import timezone
 from django.db import transaction
+
+
+
 import threading
 import subprocess
 import tempfile
@@ -513,9 +517,11 @@ def extract_fatura_data(request):
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
+# backend/api/views.py - FUNÇÃO CORRIGIDA
+
 @api_view(['POST'])
 def upload_faturas_with_extraction(request, customer_id):
-    """Upload de faturas com extração automática de dados e validações"""
+    """Upload de faturas com extração automática de dados e validações CORRIGIDAS"""
     try:
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         
@@ -564,39 +570,61 @@ def upload_faturas_with_extraction(request, customer_id):
                         })
                         continue
                     
-                    # Buscar UC correspondente
+                    # ✅ CORREÇÃO: Verificar UC correspondente COM VALIDAÇÃO ADEQUADA
                     uc_codigo = extracted_data.get('unidade_consumidora')
                     uc = None
-                    aviso_uc = None
                     
                     if uc_codigo:
-                        # Verificar se UC existe em outro cliente
-                        uc_outros_clientes = UnidadeConsumidora.objects.filter(
-                            codigo=uc_codigo
-                        ).exclude(customer=customer)
+                        print(f"🔍 DEBUG: UC extraída do PDF: {uc_codigo}")
                         
-                        if uc_outros_clientes.exists():
-                            uc_outro_cliente = uc_outros_clientes.first()
-                            aviso_uc = {
-                                "tipo": "uc_outro_cliente",
-                                "uc_codigo": uc_codigo,
-                                "cliente_nome": uc_outro_cliente.customer.nome,
-                                "cliente_id": uc_outro_cliente.customer.id
-                            }
-                        
-                        # Buscar UC no cliente atual
+                        # ✅ PRIMEIRO: Verificar se UC existe no cliente atual
                         uc = customer.unidades_consumidoras.filter(codigo=uc_codigo).first()
-                    
-                    if not uc:
-                        uc = customer.unidades_consumidoras.filter(is_active=True).first()
-                    
-                    if not uc:
+                        
+                        if uc:
+                            print(f"✅ UC {uc_codigo} encontrada no cliente atual")
+                        else:
+                            print(f"❌ UC {uc_codigo} NÃO encontrada no cliente atual")
+                            
+                            # ✅ VERIFICAR se UC existe em outros clientes
+                            uc_outros_clientes = UnidadeConsumidora.objects.filter(
+                                codigo=uc_codigo
+                            ).exclude(customer=customer).first()
+                            
+                            if uc_outros_clientes:
+                                print(f"⚠️ UC {uc_codigo} encontrada em outro cliente: {uc_outros_clientes.customer.nome}")
+                                
+                                # ✅ AVISO CORRETO: UC pertence a outro cliente
+                                avisos.append({
+                                    "tipo": "uc_outro_cliente",
+                                    "arquivo": arquivo.name,
+                                    "uc_codigo": uc_codigo,
+                                    "cliente_nome": uc_outros_clientes.customer.nome,
+                                    "cliente_id": uc_outros_clientes.customer.id,
+                                    "mensagem": f"A UC {uc_codigo} está cadastrada no cliente '{uc_outros_clientes.customer.nome}', não no cliente atual."
+                                })
+                                continue  # ✅ PULAR este arquivo, não processar
+                            else:
+                                print(f"❌ UC {uc_codigo} não encontrada em nenhum cliente")
+                                
+                                # ✅ AVISO CORRETO: UC não existe no sistema
+                                avisos.append({
+                                    "tipo": "uc_nao_encontrada",
+                                    "arquivo": arquivo.name,
+                                    "uc_codigo": uc_codigo,
+                                    "mensagem": f"A UC {uc_codigo} não está cadastrada no sistema. Cadastre-a primeiro ou verifique se o código está correto."
+                                })
+                                continue  # ✅ PULAR este arquivo, não processar
+                    else:
+                        print("❌ Nenhuma UC extraída do PDF")
+                        
+                        # ✅ ERRO: Não conseguiu extrair UC
                         faturas_com_erro.append({
                             "arquivo": arquivo.name,
-                            "erro": "Cliente não possui UC ativa ou correspondente"
+                            "erro": "Não foi possível extrair o código da UC do PDF"
                         })
                         continue
                     
+                    # ✅ Se chegou até aqui, a UC existe no cliente atual
                     # Processar mês de referência
                     mes_referencia = None
                     if extracted_data.get('mes_referencia'):
@@ -609,23 +637,29 @@ def upload_faturas_with_extraction(request, customer_id):
                     else:
                         mes_referencia = timezone.now().date().replace(day=1)
                     
-                    # Verificar se fatura já existe
+                    print(f"📅 Data de referência: {mes_referencia}")
+                    
+                    # ✅ VERIFICAR se fatura já existe PARA ESTA UC ESPECÍFICA
                     fatura_existente = Fatura.objects.filter(
-                        unidade_consumidora=uc,
+                        unidade_consumidora=uc,  # ✅ UC correta do cliente atual
                         mes_referencia=mes_referencia
                     ).first()
                     
                     if fatura_existente:
+                        print(f"⚠️ Fatura já existe: UC {uc.codigo}, mês {mes_referencia}")
+                        
+                        # ✅ AVISO CORRETO: Fatura duplicada para a UC correta
                         avisos.append({
                             "tipo": "fatura_duplicada",
                             "arquivo": arquivo.name,
                             "uc_codigo": uc.codigo,
                             "mes_referencia": mes_referencia.strftime('%m/%Y'),
-                            "fatura_existente_id": fatura_existente.id
+                            "fatura_existente_id": fatura_existente.id,
+                            "mensagem": f"Já existe uma fatura para a UC {uc.codigo} no período {mes_referencia.strftime('%m/%Y')}."
                         })
-                        continue
+                        continue  # ✅ PULAR este arquivo
                     
-                    # Processar data de vencimento
+                    # ✅ Processar data de vencimento
                     data_vencimento = None
                     if extracted_data.get('data_vencimento'):
                         try:
@@ -636,9 +670,9 @@ def upload_faturas_with_extraction(request, customer_id):
                         except:
                             pass
                     
-                    # Criar fatura
+                    # ✅ Criar fatura para a UC CORRETA
                     fatura = Fatura.objects.create(
-                        unidade_consumidora=uc,
+                        unidade_consumidora=uc,  # ✅ UC correta
                         mes_referencia=mes_referencia,
                         arquivo=arquivo,
                         valor=extracted_data.get('valor_total'),
@@ -646,19 +680,16 @@ def upload_faturas_with_extraction(request, customer_id):
                         downloaded_at=timezone.now()
                     )
                     
-                    resultado_fatura = {
+                    print(f"✅ Fatura criada: ID {fatura.id}, UC {uc.codigo}")
+                    
+                    faturas_processadas.append({
                         "id": fatura.id,
                         "arquivo": arquivo.name,
                         "uc": uc.codigo,
                         "mes_referencia": mes_referencia,
                         "valor": fatura.valor,
                         "dados_extraidos": extracted_data
-                    }
-                    
-                    if aviso_uc:
-                        resultado_fatura["aviso"] = aviso_uc
-                    
-                    faturas_processadas.append(resultado_fatura)
+                    })
                     
                 else:
                     faturas_com_erro.append({
@@ -667,18 +698,24 @@ def upload_faturas_with_extraction(request, customer_id):
                     })
                     
             except Exception as e:
+                print(f"❌ Erro ao processar {arquivo.name}: {str(e)}")
                 faturas_com_erro.append({
                     "arquivo": arquivo.name,
                     "erro": str(e)
                 })
         
-        return Response({
+        # ✅ Resposta com avisos corretos
+        response_data = {
             "message": f"{len(faturas_processadas)} fatura(s) processada(s) com sucesso",
             "faturas_processadas": faturas_processadas,
             "faturas_com_erro": faturas_com_erro,
             "avisos": avisos,
             "total_enviadas": len(request.FILES.getlist('faturas'))
-        }, status=status.HTTP_201_CREATED)
+        }
+        
+        print(f"📊 RESULTADO FINAL: {len(faturas_processadas)} processadas, {len(avisos)} avisos, {len(faturas_com_erro)} erros")
+        
+        return Response(response_data, status=status.HTTP_201_CREATED)
         
     except Customer.DoesNotExist:
         return Response(
@@ -686,13 +723,12 @@ def upload_faturas_with_extraction(request, customer_id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        print(f"❌ Erro geral: {str(e)}")
         return Response(
             {"error": f"Erro interno: {str(e)}"}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
 
-# backend/api/views.py - Substituir a função extract_fatura_data_view
- 
 @api_view(['POST'])
 def extract_fatura_data_view(request):
     """Extrai dados de uma fatura PDF - versão corrigida com mapeamento consistente"""
@@ -976,7 +1012,7 @@ def get_faturas_por_ano(request, customer_id):
 # View para forçar upload mesmo com avisos
 @api_view(['POST'])
 def force_upload_fatura(request, customer_id):
-    """Força o upload de uma fatura mesmo com avisos"""
+    """Força o upload de uma fatura mesmo com avisos - VERSÃO CORRIGIDA"""
     try:
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         
@@ -985,6 +1021,13 @@ def force_upload_fatura(request, customer_id):
         mes_referencia_str = request.data.get('mes_referencia')  # formato: MM/YYYY
         arquivo = request.FILES.get('arquivo')
         dados_extraidos = request.data.get('dados_extraidos', {})
+        
+        # ✅ CORREÇÃO: Tratar dados_extraidos como string JSON se necessário
+        if isinstance(dados_extraidos, str):
+            try:
+                dados_extraidos = json.loads(dados_extraidos)
+            except json.JSONDecodeError:
+                dados_extraidos = {}
         
         if not all([uc_codigo, mes_referencia_str, arquivo]):
             return Response(
@@ -1010,29 +1053,66 @@ def force_upload_fatura(request, customer_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
         
-        # Verificar se já existe e remover
-        Fatura.objects.filter(
+        # ✅ CORREÇÃO: Verificar se já existe e DELETAR antes de criar nova
+        faturas_existentes = Fatura.objects.filter(
             unidade_consumidora=uc,
             mes_referencia=mes_referencia
-        ).delete()
+        )
+        
+        if faturas_existentes.exists():
+            print(f"🗑️ Removendo {faturas_existentes.count()} fatura(s) existente(s)")
+            faturas_existentes.delete()
+        
+        # ✅ CORREÇÃO: Processar data de vencimento corretamente
+        data_vencimento = None
+        if dados_extraidos.get('data_vencimento'):
+            try:
+                # Tentar diferentes formatos de data
+                venc_str = str(dados_extraidos['data_vencimento'])
+                
+                # Formato DD/MM/YYYY
+                if '/' in venc_str:
+                    data_vencimento = datetime.strptime(venc_str, '%d/%m/%Y').date()
+                # Formato YYYY-MM-DD
+                elif '-' in venc_str:
+                    data_vencimento = datetime.strptime(venc_str, '%Y-%m-%d').date()
+                    
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ Erro ao processar data de vencimento: {e}")
+                data_vencimento = None
+        
+        # ✅ CORREÇÃO: Processar valor total corretamente
+        valor_total = None
+        if dados_extraidos.get('valor_total'):
+            try:
+                valor_str = str(dados_extraidos['valor_total'])
+                # Remover símbolos de moeda e converter
+                valor_str = valor_str.replace('R$', '').replace(' ', '').replace(',', '.')
+                valor_total = float(valor_str)
+            except (ValueError, TypeError) as e:
+                print(f"⚠️ Erro ao processar valor total: {e}")
+                valor_total = None
         
         # Criar nova fatura
         fatura = Fatura.objects.create(
             unidade_consumidora=uc,
             mes_referencia=mes_referencia,
             arquivo=arquivo,
-            valor=dados_extraidos.get('valor_total'),
-            vencimento=dados_extraidos.get('data_vencimento'),
+            valor=valor_total,
+            vencimento=data_vencimento,
             downloaded_at=timezone.now()
         )
+        
+        print(f"✅ Fatura criada: ID {fatura.id}, Valor: {fatura.valor}, Vencimento: {fatura.vencimento}")
         
         return Response({
             "message": "Fatura enviada com sucesso",
             "fatura": {
                 "id": fatura.id,
                 "uc": uc.codigo,
-                "mes_referencia": mes_referencia,
-                "valor": fatura.valor
+                "mes_referencia": mes_referencia.strftime('%m/%Y'),
+                "valor": str(fatura.valor) if fatura.valor else None,
+                "vencimento": fatura.vencimento.strftime('%d/%m/%Y') if fatura.vencimento else None
             }
         }, status=status.HTTP_201_CREATED)
         
@@ -1042,6 +1122,194 @@ def force_upload_fatura(request, customer_id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        print(f"❌ Erro interno: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        return Response(
+            {"error": f"Erro interno: {str(e)}"}, 
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR
+        )
+
+# ✅ NOVA: View para editar fatura existente
+@api_view(['GET', 'PUT'])
+def edit_fatura(request, fatura_id):
+    """Permite visualizar e editar dados de uma fatura existente - VERSÃO CORRIGIDA"""
+    try:
+        print(f"🔍 DEBUG: Buscando fatura ID {fatura_id}")
+        fatura = Fatura.objects.get(pk=fatura_id)
+        print(f"✅ DEBUG: Fatura encontrada: {fatura}")
+        
+        # Verificar se o usuário tem permissão para esta fatura
+        if fatura.unidade_consumidora.customer.user != request.user:
+            print(f"❌ DEBUG: Permissão negada. User da fatura: {fatura.unidade_consumidora.customer.user}, User da requisição: {request.user}")
+            return Response(
+                {"error": "Permissão negada"}, 
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        print(f"✅ DEBUG: Permissão OK para user {request.user}")
+        
+        if request.method == 'GET':
+            print(f"📖 DEBUG: Processando GET request")
+            
+            try:
+                # ✅ CORREÇÃO: Verificações de segurança para campos None
+                mes_referencia_formatted = ''
+                if fatura.mes_referencia:
+                    mes_referencia_formatted = fatura.mes_referencia.strftime('%b/%Y').upper()
+                
+                data_vencimento_formatted = ''
+                if fatura.vencimento:
+                    data_vencimento_formatted = fatura.vencimento.strftime('%d/%m/%Y')
+                
+                valor_total_formatted = ''
+                if fatura.valor:
+                    valor_total_formatted = str(fatura.valor)
+                
+                arquivo_url = None
+                if fatura.arquivo:
+                    try:
+                        arquivo_url = fatura.arquivo.url
+                    except:
+                        arquivo_url = None
+                
+                downloaded_at_formatted = None
+                if fatura.downloaded_at:
+                    try:
+                        downloaded_at_formatted = fatura.downloaded_at.strftime('%d/%m/%Y %H:%M')
+                    except:
+                        downloaded_at_formatted = None
+                
+                response_data = {
+                    "id": fatura.id,
+                    "unidade_consumidora": fatura.unidade_consumidora.codigo,
+                    "mes_referencia": mes_referencia_formatted,
+                    "data_vencimento": data_vencimento_formatted,
+                    "valor_total": valor_total_formatted,
+                    "arquivo_url": arquivo_url,
+                    "downloaded_at": downloaded_at_formatted
+                }
+                
+                print(f"✅ DEBUG: Dados preparados: {response_data}")
+                return Response(response_data)
+                
+            except Exception as format_error:
+                print(f"❌ DEBUG: Erro na formatação: {str(format_error)}")
+                import traceback
+                traceback.print_exc()
+                
+                return Response(
+                    {"error": f"Erro na formatação dos dados: {str(format_error)}"}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+        
+        elif request.method == 'PUT':
+            print(f"💾 DEBUG: Processando PUT request")
+            
+            # Atualizar dados da fatura
+            data = request.data
+            print(f"📝 DEBUG: Dados recebidos: {data}")
+            
+            try:
+                # Atualizar valor se fornecido
+                if 'valor_total' in data and data['valor_total']:
+                    try:
+                        valor_str = str(data['valor_total']).replace('R$', '').replace(' ', '').replace(',', '.')
+                        fatura.valor = float(valor_str)
+                        print(f"✅ DEBUG: Valor atualizado para: {fatura.valor}")
+                    except (ValueError, TypeError) as e:
+                        print(f"❌ DEBUG: Erro no valor: {e}")
+                        return Response(
+                            {"error": "Valor inválido"}, 
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                
+                # Atualizar data de vencimento se fornecida
+                if 'data_vencimento' in data and data['data_vencimento']:
+                    try:
+                        fatura.vencimento = datetime.strptime(data['data_vencimento'], '%d/%m/%Y').date()
+                        print(f"✅ DEBUG: Vencimento atualizado para: {fatura.vencimento}")
+                    except ValueError as e:
+                        print(f"❌ DEBUG: Erro na data: {e}")
+                        return Response(
+                            {"error": "Data de vencimento inválida"}, 
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                
+                # Atualizar mês de referência se fornecido
+                if 'mes_referencia' in data and data['mes_referencia']:
+                    try:
+                        # Formato: JAN/2025
+                        mes_str, ano_str = data['mes_referencia'].split('/')
+                        mes_map = {
+                            'JAN': 1, 'FEV': 2, 'MAR': 3, 'ABR': 4, 'MAI': 5, 'JUN': 6,
+                            'JUL': 7, 'AGO': 8, 'SET': 9, 'OUT': 10, 'NOV': 11, 'DEZ': 12
+                        }
+                        mes_num = mes_map.get(mes_str.upper())
+                        if mes_num:
+                            nova_data_ref = date(int(ano_str), mes_num, 1)
+                            # Verificar se já existe outra fatura para esta UC neste mês
+                            conflito = Fatura.objects.filter(
+                                unidade_consumidora=fatura.unidade_consumidora,
+                                mes_referencia=nova_data_ref
+                            ).exclude(id=fatura.id).exists()
+                            
+                            if conflito:
+                                return Response(
+                                    {"error": "Já existe fatura para esta UC neste mês"}, 
+                                    status=status.HTTP_400_BAD_REQUEST
+                                )
+                            
+                            fatura.mes_referencia = nova_data_ref
+                            print(f"✅ DEBUG: Mês referência atualizado para: {fatura.mes_referencia}")
+                        else:
+                            return Response(
+                                {"error": f"Mês inválido: {mes_str}"}, 
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+                    except (ValueError, KeyError) as e:
+                        print(f"❌ DEBUG: Erro no mês: {e}")
+                        return Response(
+                            {"error": "Mês de referência inválido"}, 
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                
+                # Salvar as alterações
+                fatura.save()
+                print(f"✅ DEBUG: Fatura salva com sucesso")
+                
+                return Response({
+                    "message": "Fatura atualizada com sucesso",
+                    "fatura": {
+                        "id": fatura.id,
+                        "valor": str(fatura.valor) if fatura.valor else None,
+                        "vencimento": fatura.vencimento.strftime('%d/%m/%Y') if fatura.vencimento else None,
+                        "mes_referencia": fatura.mes_referencia.strftime('%b/%Y').upper() if fatura.mes_referencia else None
+                    }
+                })
+                
+            except Exception as update_error:
+                print(f"❌ DEBUG: Erro na atualização: {str(update_error)}")
+                import traceback
+                traceback.print_exc()
+                
+                return Response(
+                    {"error": f"Erro ao atualizar fatura: {str(update_error)}"}, 
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+    
+    except Fatura.DoesNotExist:
+        print(f"❌ DEBUG: Fatura {fatura_id} não encontrada")
+        return Response(
+            {"error": "Fatura não encontrada"}, 
+            status=status.HTTP_404_NOT_FOUND
+        )
+    except Exception as e:
+        print(f"❌ DEBUG: Erro geral ao editar fatura: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
         return Response(
             {"error": f"Erro interno: {str(e)}"}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR

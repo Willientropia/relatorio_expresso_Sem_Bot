@@ -148,13 +148,15 @@ export const fetchLogs = async (customerId) => {
   }
 };
 
-// ✅ CORREÇÃO: Função para buscar faturas por ano
-export const fetchFaturasPorAno = async (customerId, ano = null) => {
+// ✅ CORREÇÃO: Melhorar função existente fetchFaturasPorAno
+export const fetchFaturasPorAno = async (customerId, ano = null, forceRefresh = false) => {
   try {
     const anoParam = ano || new Date().getFullYear();
-    console.log(`📡 Fetching faturas por ano for customer ${customerId}, ano ${anoParam}`);
+    const cacheParam = forceRefresh ? `&_t=${Date.now()}` : '';
     
-    const response = await apiClient.get(`/customers/${customerId}/faturas/por-ano/?ano=${anoParam}`);
+    console.log(`📡 Fetching faturas por ano for customer ${customerId}, ano ${anoParam}${forceRefresh ? ' (FORCE REFRESH)' : ''}`);
+    
+    const response = await apiClient.get(`/customers/${customerId}/faturas/por-ano/?ano=${anoParam}${cacheParam}`);
     return response;
   } catch (error) {
     console.error('❌ Error fetching faturas por ano:', error);
@@ -216,4 +218,47 @@ export const addCustomer = (customerData) => {
 
 export const deleteCustomer = (customerId) => {
   return apiClient.delete(`/customers/${customerId}/`);
+};
+
+// ✅ NOVA: Função para buscar dados da fatura para edição
+export const fetchFaturaForEdit = async (faturaId) => {
+  try {
+    console.log(`📝 Fetching fatura ${faturaId} for edit`);
+    return await apiClient.get(`/faturas/${faturaId}/edit/`);
+  } catch (error) {
+    console.error('❌ Error fetching fatura for edit:', error);
+    throw error;
+  }
+};
+
+// ✅ NOVA: Função para salvar edição da fatura
+export const saveFaturaEdit = async (faturaId, dadosEditados) => {
+  try {
+    console.log(`💾 Saving edit for fatura ${faturaId}:`, dadosEditados);
+    return await apiClient.put(`/faturas/${faturaId}/edit/`, dadosEditados);
+  } catch (error) {
+    console.error('❌ Error saving fatura edit:', error);
+    throw error;
+  }
+};
+
+// ✅ NOVA: Função para força upload com logs melhores
+export const forceUploadFatura = async (customerId, dadosUpload) => {
+  try {
+    console.log(`🚀 Force uploading fatura for customer ${customerId}:`, {
+      uc_codigo: dadosUpload.get('uc_codigo'),
+      mes_referencia: dadosUpload.get('mes_referencia')
+    });
+    
+    return await apiClient.post(
+      `/customers/${customerId}/faturas/force-upload/`,
+      dadosUpload,
+      {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      }
+    );
+  } catch (error) {
+    console.error('❌ Error force uploading fatura:', error);
+    throw error;
+  }
 };

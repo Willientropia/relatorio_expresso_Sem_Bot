@@ -1,4 +1,4 @@
-# backend/api/urls.py - Adicionar estas rotas
+# backend/api/urls.py - ADICIONAR esta nova rota
 
 from django.urls import path
 from . import views
@@ -30,6 +30,9 @@ urlpatterns = [
          views.upload_faturas_with_extraction, name='upload_faturas_with_extraction'),
     path('customers/<int:customer_id>/faturas/force-upload/', 
          views.force_upload_fatura, name='force_upload_fatura'),
+    
+    # ✅ NOVA: Rota para editar fatura
+    path('faturas/<int:fatura_id>/edit/', views.edit_fatura, name='edit_fatura'),
     
     # Extração de dados de fatura
     path('extract-fatura-data/', views.extract_fatura_data, name='extract_fatura_data'),
