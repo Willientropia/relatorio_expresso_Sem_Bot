@@ -1014,6 +1014,7 @@ def get_faturas_por_ano(request, customer_id):
 def force_upload_fatura(request, customer_id):
     """Força o upload de uma fatura mesmo com avisos - VERSÃO CORRIGIDA"""
     try:
+        print(f"🔧 DEBUG FORCE UPLOAD: Iniciando para customer_id={customer_id}")
         customer = Customer.objects.get(pk=customer_id, user=request.user)
         
         # Dados da requisição
@@ -1022,14 +1023,24 @@ def force_upload_fatura(request, customer_id):
         arquivo = request.FILES.get('arquivo')
         dados_extraidos = request.data.get('dados_extraidos', {})
         
+        print(f"🔧 DEBUG DADOS RECEBIDOS:")
+        print(f"  uc_codigo: {uc_codigo}")
+        print(f"  mes_referencia_str: {mes_referencia_str}")
+        print(f"  arquivo: {arquivo.name if arquivo else 'None'}")
+        print(f"  dados_extraidos (raw): {dados_extraidos}")
+        print(f"  dados_extraidos type: {type(dados_extraidos)}")
+        
         # ✅ CORREÇÃO: Tratar dados_extraidos como string JSON se necessário
         if isinstance(dados_extraidos, str):
             try:
                 dados_extraidos = json.loads(dados_extraidos)
+                print(f"🔧 DEBUG: dados_extraidos após JSON parse: {dados_extraidos}")
             except json.JSONDecodeError:
+                print(f"❌ DEBUG: Erro ao fazer parse JSON dos dados_extraidos")
                 dados_extraidos = {}
         
         if not all([uc_codigo, mes_referencia_str, arquivo]):
+            print(f"❌ DEBUG: Dados incompletos")
             return Response(
                 {"error": "Dados incompletos"}, 
                 status=status.HTTP_400_BAD_REQUEST
@@ -1038,16 +1049,21 @@ def force_upload_fatura(request, customer_id):
         # Buscar UC
         uc = customer.unidades_consumidoras.filter(codigo=uc_codigo).first()
         if not uc:
+            print(f"❌ DEBUG: UC {uc_codigo} não encontrada")
             return Response(
                 {"error": "UC não encontrada"}, 
                 status=status.HTTP_404_NOT_FOUND
             )
         
+        print(f"✅ DEBUG: UC encontrada: {uc.codigo}")
+        
         # Processar mês de referência
         try:
             mes, ano = mes_referencia_str.split('/')
             mes_referencia = date(int(ano), int(mes), 1)
+            print(f"✅ DEBUG: Mês de referência processado: {mes_referencia}")
         except:
+            print(f"❌ DEBUG: Formato de data inválido: {mes_referencia_str}")
             return Response(
                 {"error": "Formato de data inválido"}, 
                 status=status.HTTP_400_BAD_REQUEST
@@ -1060,7 +1076,9 @@ def force_upload_fatura(request, customer_id):
         )
         
         if faturas_existentes.exists():
-            print(f"🗑️ Removendo {faturas_existentes.count()} fatura(s) existente(s)")
+            print(f"🗑️ DEBUG: Removendo {faturas_existentes.count()} fatura(s) existente(s)")
+            for fatura_existente in faturas_existentes:
+                print(f"  - Fatura ID {fatura_existente.id}, Valor: {fatura_existente.valor}")
             faturas_existentes.delete()
         
         # ✅ CORREÇÃO: Processar data de vencimento corretamente
@@ -1069,6 +1087,7 @@ def force_upload_fatura(request, customer_id):
             try:
                 # Tentar diferentes formatos de data
                 venc_str = str(dados_extraidos['data_vencimento'])
+                print(f"🔧 DEBUG: Processando data_vencimento: '{venc_str}'")
                 
                 # Formato DD/MM/YYYY
                 if '/' in venc_str:
@@ -1076,24 +1095,38 @@ def force_upload_fatura(request, customer_id):
                 # Formato YYYY-MM-DD
                 elif '-' in venc_str:
                     data_vencimento = datetime.strptime(venc_str, '%Y-%m-%d').date()
+                
+                print(f"✅ DEBUG: Data de vencimento processada: {data_vencimento}")
                     
             except (ValueError, TypeError) as e:
-                print(f"⚠️ Erro ao processar data de vencimento: {e}")
+                print(f"⚠️ DEBUG: Erro ao processar data de vencimento: {e}")
                 data_vencimento = None
+        else:
+            print(f"⚠️ DEBUG: Nenhuma data_vencimento nos dados_extraidos")
         
         # ✅ CORREÇÃO: Processar valor total corretamente
         valor_total = None
         if dados_extraidos.get('valor_total'):
             try:
                 valor_str = str(dados_extraidos['valor_total'])
+                print(f"🔧 DEBUG: Processando valor_total: '{valor_str}'")
                 # Remover símbolos de moeda e converter
                 valor_str = valor_str.replace('R$', '').replace(' ', '').replace(',', '.')
                 valor_total = float(valor_str)
+                print(f"✅ DEBUG: Valor total processado: {valor_total}")
             except (ValueError, TypeError) as e:
-                print(f"⚠️ Erro ao processar valor total: {e}")
+                print(f"⚠️ DEBUG: Erro ao processar valor total: {e}")
                 valor_total = None
+        else:
+            print(f"⚠️ DEBUG: Nenhum valor_total nos dados_extraidos")
         
         # Criar nova fatura
+        print(f"🔧 DEBUG: Criando nova fatura com:")
+        print(f"  UC: {uc.codigo}")
+        print(f"  Mês: {mes_referencia}")
+        print(f"  Valor: {valor_total}")
+        print(f"  Vencimento: {data_vencimento}")
+        
         fatura = Fatura.objects.create(
             unidade_consumidora=uc,
             mes_referencia=mes_referencia,
@@ -1103,7 +1136,7 @@ def force_upload_fatura(request, customer_id):
             downloaded_at=timezone.now()
         )
         
-        print(f"✅ Fatura criada: ID {fatura.id}, Valor: {fatura.valor}, Vencimento: {fatura.vencimento}")
+        print(f"✅ DEBUG: Fatura criada: ID {fatura.id}, Valor: {fatura.valor}, Vencimento: {fatura.vencimento}")
         
         return Response({
             "message": "Fatura enviada com sucesso",

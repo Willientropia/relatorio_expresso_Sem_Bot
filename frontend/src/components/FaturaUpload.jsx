@@ -112,11 +112,41 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
   };
 
   const updateDocumentData = (documentId, field, value) => {
-    setDocuments(prev => prev.map(doc => 
-      doc.id === documentId 
-        ? { ...doc, modifiedData: { ...doc.modifiedData, [field]: value } }
-        : doc
-    ));
+    console.log('🔧 DEBUG FRONTEND: updateDocumentData called', {
+      documentId,
+      field,
+      value,
+      valueType: typeof value,
+      timestamp: new Date().toISOString()
+    });
+    
+    setDocuments(prev => {
+      const updated = prev.map(doc => {
+        if (doc.id === documentId) {
+          const newModifiedData = { ...doc.modifiedData, [field]: value };
+          console.log('🔧 DEBUG documento atualizado:', {
+            documentId: doc.id,
+            fileName: doc.fileName,
+            field,
+            value,
+            modifiedDataAntes: doc.modifiedData,
+            modifiedDataDepois: newModifiedData,
+            extractedData: doc.extractedData
+          });
+          return { ...doc, modifiedData: newModifiedData };
+        }
+        return doc;
+      });
+      
+      console.log('🔧 DEBUG estado documents após update:', updated.map(d => ({
+        id: d.id,
+        fileName: d.fileName,
+        modifiedData: d.modifiedData,
+        extractedData: d.extractedData
+      })));
+      
+      return updated;
+    });
   };
 
   const removeDocument = (documentId) => {
@@ -139,7 +169,8 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
       return;
     }
 
-    console.log('🔧 DEBUG handleWarningConfirm:', pendingUpload);
+    console.log('🔧 DEBUG FRONTEND: handleWarningConfirm iniciado');
+    console.log('🔧 DEBUG pendingUpload:', pendingUpload);
     
     setWarningModal(prev => ({ ...prev, isProcessing: true }));
 
@@ -157,10 +188,16 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
       
       // Adicionar dados extraídos como JSON string
       if (pendingUpload.dados_extraidos) {
+        console.log('🔧 DEBUG dados_extraidos antes de stringify:', pendingUpload.dados_extraidos);
         formData.append('dados_extraidos', JSON.stringify(pendingUpload.dados_extraidos));
       }
       
       // Debug: Log dos dados sendo enviados
+      console.log('🔧 DEBUG FormData sendo enviado:');
+      console.log('  arquivo:', pendingUpload.file?.name);
+      console.log('  uc_codigo:', pendingUpload.uc_codigo);
+      console.log('  mes_referencia:', pendingUpload.mes_referencia);
+      console.log('  dados_extraidos (stringified):', JSON.stringify(pendingUpload.dados_extraidos));
       console.log('📤 Enviando dados:', {
         uc_codigo: pendingUpload.uc_codigo,
         mes_referencia: pendingUpload.mes_referencia,
@@ -181,6 +218,7 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
       );
 
       if (response.status === 201) {
+        console.log('✅ DEBUG: Resposta do servidor:', response.data);
         console.log('✅ Upload forçado bem-sucedido:', response.data);
         
         // Limpar URLs de objeto
@@ -371,18 +409,49 @@ const FaturaUpload = ({ clienteId, onUploadSuccess }) => {
           
           if (docCorrespondente) {
             console.log('🔍 Documento correspondente encontrado:', docCorrespondente.fileName);
+            console.log('🔧 DEBUG dados do documento:', {
+              fileName: docCorrespondente.fileName,
+              extractedData: docCorrespondente.extractedData,
+              modifiedData: docCorrespondente.modifiedData,
+              hasModifiedData: Object.keys(docCorrespondente.modifiedData || {}).length > 0,
+              hasExtractedData: Object.keys(docCorrespondente.extractedData || {}).length > 0,
+              modifiedDataKeys: Object.keys(docCorrespondente.modifiedData || {}),
+              extractedDataKeys: Object.keys(docCorrespondente.extractedData || {})
+            });
+            
+            // NOVO: Log detalhado dos valores específicos
+            console.log('🔧 DEBUG valores específicos:', {
+              'modifiedData.valor_total': docCorrespondente.modifiedData?.valor_total,
+              'extractedData.valor_total': docCorrespondente.extractedData?.valor_total,
+              'modifiedData.data_vencimento': docCorrespondente.modifiedData?.data_vencimento,
+              'extractedData.data_vencimento': docCorrespondente.extractedData?.data_vencimento
+            });
+            
+            // Priorizar modifiedData sobre extractedData (com verificação mais rigorosa)
+            const temModifiedData = docCorrespondente.modifiedData && Object.keys(docCorrespondente.modifiedData).length > 0;
+            const dadosFinais = temModifiedData ? docCorrespondente.modifiedData : docCorrespondente.extractedData;
+            
+            console.log('🔧 DEBUG dados finais selecionados:', {
+              origem: docCorrespondente.modifiedData ? 'modifiedData' : 'extractedData',
+              dados: dadosFinais,
+              valor_total: dadosFinais?.valor_total,
+              data_vencimento: dadosFinais?.data_vencimento
+            });
             
             const dadosParaForceUpload = {
               file: docCorrespondente.file,
               uc_codigo: primeiroAviso.uc_codigo,
               mes_referencia: primeiroAviso.mes_referencia,
-              dados_extraidos: docCorrespondente.extractedData || docCorrespondente.modifiedData
+              dados_extraidos: dadosFinais
             };
             
-            console.log('📋 Dados preparados para force upload:', {
+            console.log('📋 DEBUG dados preparados para force upload:', {
               uc_codigo: dadosParaForceUpload.uc_codigo,
               mes_referencia: dadosParaForceUpload.mes_referencia,
-              arquivo: dadosParaForceUpload.file.name
+              arquivo: dadosParaForceUpload.file.name,
+              dados_extraidos: dadosParaForceUpload.dados_extraidos,
+              dados_extraidos_valor: dadosParaForceUpload.dados_extraidos?.valor_total,
+              dados_extraidos_vencimento: dadosParaForceUpload.dados_extraidos?.data_vencimento
             });
             
             setWarningModal({
